@@ -27,6 +27,10 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 `xcodebuild test` needs an installed iOS Simulator runtime; check with
 `xcrun simctl list runtimes`. Pick a device name from
 `xcodebuild -showdestinations -project PATHStat.xcodeproj -scheme PATHStat`.
+Verified simulators: "iPhone 17" and "iPhone 18 Pro" (iOS 27.0 runtime).
+
+If a simulator boot fails with "Unable to locate launchd_sim", run
+`killall -9 com.apple.CoreSimulator.CoreSimulatorService` and retry.
 
 ## Conventions
 
