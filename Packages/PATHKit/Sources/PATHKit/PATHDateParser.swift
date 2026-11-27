@@ -3,9 +3,12 @@ import Foundation
 /// Parses the feed's ISO-8601 timestamps, e.g. `2026-11-26T20:44:07.263779-05:00`.
 ///
 /// Accepts any number of fractional-second digits (or none) and an offset of `Z`,
-/// `±HH:MM`, `±HHMM` or `±HH`. Implemented by hand because `ISO8601DateFormatter`
+/// `±HH:MM`, `±HHMM` or `±HH`. A missing offset is interpreted as PATH local time
+/// (America/New_York). Implemented by hand because `ISO8601DateFormatter`
 /// only reliably handles millisecond fractions.
 public enum PATHDateParser {
+    static let pathTimeZone = TimeZone(identifier: "America/New_York")!
+
     public static func parse(_ string: String) -> Date? {
         let s = Array(string.trimmingCharacters(in: .whitespaces).utf8)
         var i = 0
@@ -49,9 +52,10 @@ public enum PATHDateParser {
             guard any else { return nil }
         }
 
-        var offsetSeconds = 0
-        guard i < s.count else { return nil } // offset required
-        if expect(UInt8(ascii: "Z")) || expect(UInt8(ascii: "z")) {
+        var offsetSeconds: Int? = 0
+        if i == s.count {
+            offsetSeconds = nil // no offset: PATH local time
+        } else if expect(UInt8(ascii: "Z")) || expect(UInt8(ascii: "z")) {
             offsetSeconds = 0
         } else {
             let sign: Int
@@ -71,10 +75,10 @@ public enum PATHDateParser {
               hour < 24, minute < 60, second <= 60 else { return nil }
 
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.timeZone = offsetSeconds == nil ? pathTimeZone : TimeZone(secondsFromGMT: 0)!
         let components = DateComponents(year: year, month: month, day: day, hour: hour, minute: minute, second: second)
         guard let base = calendar.date(from: components),
               calendar.component(.day, from: base) == day else { return nil }
-        return base.addingTimeInterval(fraction - TimeInterval(offsetSeconds))
+        return base.addingTimeInterval(fraction - TimeInterval(offsetSeconds ?? 0))
     }
 }
