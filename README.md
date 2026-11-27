@@ -1,8 +1,56 @@
 # PATH-stat
 
 A native iOS (SwiftUI) app for real-time PATH train arrivals. Phase 1 is the data layer:
-`PATHKit`, a pure Foundation + CoreLocation Swift package, plus a placeholder app screen that
-lists the next trains at Grove Street in both directions, and a macOS debug CLI.
+`PATHKit`, a pure Foundation + CoreLocation Swift package, plus a macOS debug CLI. Phase 2 is
+the main app screen.
+
+## Phase 2: the main screen
+
+![Near Grove St](docs/screenshots/phase2/live-near-grove.png)
+
+- **Station header**: the trip's origin, with "Nearest station · 0.3 mi", "Home station" or
+  "Selected station". Tap it to open the station picker (searchable, nearest first with
+  distances when location is known, line-colour dots).
+- **Destination chips**: the ends of every line through the station (toward NY first),
+  plus a "More" menu with the other stops reachable on one line.
+- **Next train** card with a live m:ss countdown ("Due" at ≤ 0 s) and the arrival time,
+  a smaller **following** card, and up to two **later** trains. Trains come from
+  `PATHSnapshot.departures(at:toward:)`, which merges both feed directions and keeps trains
+  that stop at the destination.
+- **States**: loading, no trains (service may be suspended / late night), can't reach PATH
+  (Retry), offline with old data (orange banner), plus an "Updated 12 s ago" footer and a
+  stale warning.
+- **Favorites**: Grove St → 33rd St, Grove St → WTC and Going home (23rd St → Grove St) to
+  start with. The star toggles the current trip; long-press a favorite to remove it.
+- **Location**: when-in-use only, one-shot `requestLocation()` at 100 m accuracy, no
+  background use. If location is denied, a banner offers "Choose station" and "Open Settings".
+- Refreshes every 20 s while visible and active, on pull-to-refresh, on trip change and on
+  return to foreground. Uses system colours (Dark Mode) and text styles (Dynamic Type); train
+  cards, chips and header have VoiceOver labels.
+
+### Smart default trip (`TripPlanner.defaultTrip`)
+
+The app opens on `defaultTrip(location: nil, lastTrip:)`. When the first location fix arrives
+(or location is denied), it switches once, but only if you haven't picked anything yet this session:
+
+1. Nearest station is Grove St and within 1 km → **Grove St → 33rd St**.
+2. Nearest station is 23rd St and within 1 km → **Going home** (23rd St → Grove St).
+3. Any other location → from the nearest station (any distance), to the last trip's
+   destination if the last trip started there, else the first terminus (toward NY first).
+4. No location → the last trip, else Grove St → 33rd St.
+
+Only manual choices are saved as the last trip. When you change station, the destination
+stays if it's still reachable on one line (`TripPlanner.defaultDestination(from:preferring:)`).
+
+### Hooks for later phases
+
+- **Phase 3 (widget)**: `Trip.url` / `Trip(url:)` deep links (`pathstat://trip?from=GRV&to=33S`),
+  handled by `.onOpenURL`. The `pathstat` URL scheme is registered in `PATHStat/Info.plist`.
+  `TripStore(suiteName:)` accepts an App Group suite if one turns out to be needed.
+- **Phase 4 (Live Activities)**: a disabled "Start Live Activity" button ("Coming soon").
+
+Screenshots: `docs/screenshots/phase2/` (live feed with simulated location: light, dark, and
+XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI-test scenario).
 
 ## Data sources
 
@@ -64,6 +112,7 @@ data[]
 ```text
 PATHStat.xcodeproj/          iOS app project (hand-written, objectVersion 77) + shared PATHStat scheme
 PATHStat/                    SwiftUI app sources (file-system synchronized group)
+PATHStatUITests/             XCUITest UI tests driving the app's -UITestScenario modes
 Packages/PATHKit/
   Sources/PATHKit/           library: stations, lines, feed/alerts parsing, PATHClient
   Sources/path-live/         macOS debug CLI
@@ -73,6 +122,8 @@ Packages/PATHKit/
 Main `PATHKit` API: `PATHClient` (fetch and parse), `PATHSnapshot.departures(at:direction:toward:headsign:now:)`
 → `DepartureBoard` (sorted trains, `next`/`following`, `freshness`), `StationCatalog` (stations,
 nearest station, lines and direction between stations), `ServiceAlert`, `PATHError`.
+Phase 2 adds `Trip` (+ presets, deep links), `StationCatalog.destinationOptions(from:)`,
+`PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, and `TripStore`.
 
 ## Build, test, run
 
@@ -83,8 +134,11 @@ swift test --package-path Packages/PATHKit                       # unit tests
 PATH_LIVE=1 swift test --package-path Packages/PATHKit           # + live feed tests
 swift run --package-path Packages/PATHKit path-live [STATION]    # live CLI, default GRV
 xcodebuild -list -project PATHStat.xcodeproj
-xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat -destination 'platform=iOS Simulator,name=iPhone 17'
+xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat -destination 'platform=iOS Simulator,name=iPhone 17'  # + UI tests
 ```
+
+UI-test scenarios: launch with `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>`
+and optionally `-UITestLocation <lat>,<lon>` (see AGENTS.md).
 
 Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.
 

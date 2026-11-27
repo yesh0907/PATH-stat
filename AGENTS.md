@@ -21,8 +21,44 @@ xcodebuild -list -project PATHStat.xcodeproj
 xcodebuild build -project PATHStat.xcodeproj -scheme PATHStat \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
-  -destination 'platform=iOS Simulator,name=iPhone 17'       # runs PATHKitTests
+  -destination 'platform=iOS Simulator,name=iPhone 17'       # PATHKitTests + PATHStatUITests (~3 min)
+xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:PATHStatUITests                               # UI tests only
 ```
+
+### UI-test scenarios and screenshots
+
+The app has deterministic modes for UI tests, previews and screenshots (`PATHStat/Scenario.swift`):
+`-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>` and optional
+`-UITestLocation <lat>,<lon>` (alone it implies `trains`). Scenario mode uses a stub feed, a
+throwaway `TripStore` suite and fixed location state; it never creates `CLLocationManager`.
+UI tests find elements by accessibility identifier (`station-header`, `destination-<CODE>`,
+`next-train`, `state-loading`, ...); keep identifiers stable when editing views.
+
+```sh
+# Export UI-test screenshots (each test attaches one, named after the test)
+xcodebuild test ... -resultBundlePath /tmp/pathstat/Tests.xcresult
+xcrun xcresulttool export attachments --path /tmp/pathstat/Tests.xcresult --output-path /tmp/pathstat/att
+# manifest.json in the output maps exported files to `suggestedHumanReadableName`.
+
+# Real app, live feed, simulated location (app built with -derivedDataPath DD)
+UDID=$(xcrun simctl list devices available | grep -E '^ +iPhone 17 \(' | head -1 | grep -oE '[0-9A-F-]{36}')
+xcrun simctl boot $UDID; xcrun simctl bootstatus $UDID -b
+xcrun simctl install $UDID DD/Build/Products/Debug-iphonesimulator/PATHStat.app
+xcrun simctl privacy $UDID grant location com.yesh0907.PATHStat
+xcrun simctl location $UDID set 40.7190,-74.0430        # near Grove St; 40.7432,-73.9925 near 23rd St
+xcrun simctl launch $UDID com.yesh0907.PATHStat; sleep 6
+xcrun simctl io $UDID screenshot shot.png
+xcrun simctl ui $UDID appearance dark                     # reset: light
+xcrun simctl ui $UDID content_size extra-extra-extra-large  # reset: large
+xcrun simctl openurl $UDID 'pathstat://trip?from=HOB&to=WTC'  # deep link (shows a system confirm)
+```
+
+`simctl openurl` leaves an "Open in PATH Stat?" prompt that `simctl` can't dismiss. While it
+is up, the app's `scenePhase` is not `.active`, so the refresh loop never starts and UI tests
+time out showing "Loading trains…". Before running UI tests, go to the home screen, or
+`xcrun simctl shutdown $UDID` and boot it again.
 
 `xcodebuild test` needs an installed iOS Simulator runtime; check with
 `xcrun simctl list runtimes`. Pick a device name from
@@ -42,9 +78,11 @@ If a simulator boot fails with "Unable to locate launchd_sim", run
 
 ## Conventions
 
-- `PATHStat.xcodeproj/project.pbxproj` is hand-written (objectVersion 77). `PATHStat/` is a
-  file-system synchronized group: new files under it join the target automatically, so add
-  source files without editing the pbxproj. Edit the pbxproj only for build settings,
+- `PATHStat.xcodeproj/project.pbxproj` is hand-written (objectVersion 77). `PATHStat/` and
+  `PATHStatUITests/` are file-system synchronized groups: new files under them join their
+  target automatically, so add source files without editing the pbxproj.
+  `PATHStat/Info.plist` (URL scheme `pathstat`) is excluded from the app's membership via an
+  exception set and merged through `INFOPLIST_FILE`; other Info keys use `INFOPLIST_KEY_*`. Edit the pbxproj only for build settings,
   targets, or package references, and re-run `xcodebuild -list` afterwards.
 - No third-party dependencies, in the package or the app.
 - Package is Swift 6 language mode; keep public types `Sendable`.
@@ -52,5 +90,8 @@ If a simulator boot fails with "Unable to locate launchd_sim", run
   `Packages/PATHKit/Tests/PATHKitTests/Resources/` and load via `Bundle.module`;
   `makeFeed(...)` in `Support.swift` builds handcrafted feeds, `StubURLProtocol` stubs HTTP.
 - Anything that touches the network belongs in `LiveFeedTests` (gated on `PATH_LIVE=1`).
+- UI tests are XCTest (required for XCUIApplication) and must use scenario mode, never the live feed.
+- Put pure logic (trip planning, filtering, persistence) in PATHKit with tests; keep the app thin.
+- Never log location or coordinates; feed errors go to `Logger(subsystem: "com.yesh0907.PATHStat", category: "feed")`.
 - "toward X" means the train *stops at X after this station* on its identified line, in its
   direction — not that X is the terminus. Only an unidentified line falls back to `target == X`.
