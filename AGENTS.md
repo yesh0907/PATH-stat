@@ -19,7 +19,7 @@ swift run --package-path Packages/PATHKit path-live 33S      # any StationCode r
 # Xcode project
 xcodebuild -list -project PATHStat.xcodeproj
 xcodebuild build -project PATHStat.xcodeproj -scheme PATHStat \
-  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+  -destination 'platform=iOS Simulator,name=iPhone 17'
 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
   -destination 'platform=iOS Simulator,name=iPhone 17'       # runs PATHKitTests
 ```
