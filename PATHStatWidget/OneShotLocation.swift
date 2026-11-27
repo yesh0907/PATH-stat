@@ -7,6 +7,7 @@ import os
 final class OneShotLocation: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation?, Never>?
+    private var timeoutTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.yesh0907.PATHStat", category: "location")
 
     /// A fresh fix, or nil if not authorized, failed, or nothing arrived within `timeout`.
@@ -15,6 +16,7 @@ final class OneShotLocation: NSObject, CLLocationManagerDelegate {
     }
 
     private func run(timeout: Duration) async -> CLLocation? {
+        guard manager.isAuthorizedForWidgetUpdates else { return nil }
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways: break
         default: return nil
@@ -24,7 +26,7 @@ final class OneShotLocation: NSObject, CLLocationManagerDelegate {
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
             manager.requestLocation()
-            Task { @MainActor in
+            timeoutTask = Task { @MainActor in
                 try? await Task.sleep(for: timeout)
                 self.finish(nil)
             }
@@ -32,6 +34,8 @@ final class OneShotLocation: NSObject, CLLocationManagerDelegate {
     }
 
     private func finish(_ location: CLLocation?) {
+        timeoutTask?.cancel()
+        timeoutTask = nil
         guard let continuation else { return }
         self.continuation = nil
         manager.delegate = nil

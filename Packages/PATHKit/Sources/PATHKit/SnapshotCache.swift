@@ -1,7 +1,7 @@
 import Foundation
 
-/// Persists the latest feed snapshot as JSON so the widget (and the app on launch) can show
-/// recent data without a network round trip.
+/// Persists the latest feed snapshot as JSON so the widget can show recent data without a
+/// network round trip.
 public struct SnapshotCache: Sendable {
     public static let fileName = "latest-snapshot.json"
 
