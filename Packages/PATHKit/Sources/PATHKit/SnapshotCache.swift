@@ -34,3 +34,27 @@ public struct SnapshotCache: Sendable {
         return try? JSONDecoder().decode(PATHSnapshot.self, from: data)
     }
 }
+
+extension SnapshotCache {
+    /// The cached snapshot if it is younger than `maxAge` (and not from the future), else the
+    /// result of `fetch`, saved to the cache on success. On failure: the cached snapshot
+    /// (possibly nil, possibly old) with the `PATHError`.
+    public func loadOrFetch(
+        maxAge: TimeInterval = 60,
+        now: Date = .now,
+        fetch: @Sendable () async throws -> PATHSnapshot
+    ) async -> (snapshot: PATHSnapshot?, error: PATHError?) {
+        let cached = load()
+        if let cached {
+            let age = now.timeIntervalSince(cached.fetchedAt)
+            if age >= 0, age < maxAge { return (cached, nil) }
+        }
+        do {
+            let snapshot = try await fetch()
+            save(snapshot)
+            return (snapshot, nil)
+        } catch {
+            return (cached, PATHError.from(error))
+        }
+    }
+}

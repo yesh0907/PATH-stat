@@ -20,12 +20,13 @@ enum Scenario: String, CaseIterable, Sendable {
     static let scenarioArgument = "-UITestScenario"
     static let locationArgument = "-UITestLocation"
 
-    /// The scenario requested on the command line, if any. `-UITestLocation` alone implies `.trains`.
+    /// The scenario requested on the command line, if any. `-UITestLocation` or `-UITestFeedback`
+    /// alone implies `.trains`.
     static func fromLaunchArguments(_ arguments: [String] = ProcessInfo.processInfo.arguments)
         -> (scenario: Scenario, location: CLLocation?)? {
         let scenario = value(after: scenarioArgument, in: arguments).flatMap(Scenario.init(rawValue:))
         let location = value(after: locationArgument, in: arguments).flatMap(parseLocation)
-        guard scenario != nil || location != nil else { return nil }
+        guard scenario != nil || location != nil || arguments.contains(FeedbackScenario.argument) else { return nil }
         return (scenario ?? .trains, location)
     }
 
@@ -65,8 +66,18 @@ enum Scenario: String, CaseIterable, Sendable {
         return AppEnvironment(
             model: BoardModel(store: store, initialSnapshot: initialSnapshot, fetch: fetch),
             location: location,
-            widgetSync: nil
+            widgetSync: nil,
+            liveActivities: LiveActivityController(backend: Self.liveActivityBackend()),
+            feedback: FeedbackScenario.fromLaunchArguments().makeCenter()
         )
+    }
+
+    static let liveActivityBackendArgument = "-LiveActivityBackend"
+
+    /// In-memory unless launched with `-LiveActivityBackend real` (manual ActivityKit checks).
+    @MainActor
+    static func liveActivityBackend(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> any LiveActivityBackend {
+        value(after: liveActivityBackendArgument, in: arguments) == "real" ? ActivityKitBackend() : StubLiveActivityBackend()
     }
 
     var fetch: BoardModel.Fetch {
@@ -94,6 +105,9 @@ struct AppEnvironment {
     let location: LocationService
     /// Shares fetched snapshots with the widget; nil in scenario mode.
     let widgetSync: WidgetSync?
+    let liveActivities: LiveActivityController
+    /// In-app feedback: GitHub + Keychain live; stub service + in-memory token in scenario mode.
+    let feedback: FeedbackCenter
 
     /// Scenario environment when launched with `-UITestScenario` / `-UITestLocation`, else live.
     static func launch() -> AppEnvironment {
@@ -104,7 +118,19 @@ struct AppEnvironment {
         // copy them over once from the pre-widget standard defaults.
         let store = TripStore.shared
         store.migrateIfNeeded(from: TripStore())
-        return AppEnvironment(model: BoardModel(store: store), location: LocationService(), widgetSync: WidgetSync())
+        TrainActivities.didStart = BackgroundRefresh.schedule
+        let feedback = FeedbackCenter.live()
+        BackgroundRefresh.feedback = feedback
+        return AppEnvironment(
+            model: BoardModel(store: store),
+            location: LocationService(),
+            widgetSync: WidgetSync(),
+            liveActivities: LiveActivityController(
+                backend: ActivityKitBackend(),
+                scheduleBackgroundRefresh: BackgroundRefresh.schedule
+            ),
+            feedback: feedback
+        )
     }
 }
 
@@ -114,14 +140,23 @@ enum LaunchMode {
     case main(AppEnvironment)
     /// `-WidgetGallery <state>`: every widget family rendered for one fixed state.
     case widgetGallery(WidgetSampleState)
+    /// `-LiveActivityGallery <state>`: the Live Activity views (Lock Screen, Dynamic Island) for
+    /// one fixed sample state. Never touches ActivityKit or the caches.
+    case liveActivityGallery(TrainActivitySampleState)
 
-    static let widgetGalleryArgument = "-WidgetGallery"
+    nonisolated static let widgetGalleryArgument = "-WidgetGallery"
+    nonisolated static let liveActivityGalleryArgument = "-LiveActivityGallery"
 
     static func fromLaunchArguments(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> LaunchMode {
         if let index = arguments.firstIndex(of: widgetGalleryArgument),
            arguments.indices.contains(index + 1),
            let state = WidgetSampleState(rawValue: arguments[index + 1]) {
             return .widgetGallery(state)
+        }
+        if let index = arguments.firstIndex(of: liveActivityGalleryArgument),
+           arguments.indices.contains(index + 1),
+           let state = TrainActivitySampleState(rawValue: arguments[index + 1]) {
+            return .liveActivityGallery(state)
         }
         return .main(.launch())
     }

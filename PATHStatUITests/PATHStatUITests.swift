@@ -37,7 +37,8 @@ final class PATHStatUITests: XCTestCase {
         XCTAssertTrue(element(app, "favorite-GRV-33S").exists)
         let liveActivity = element(app, "live-activity-button")
         XCTAssertTrue(liveActivity.exists)
-        XCTAssertFalse(liveActivity.isEnabled)
+        XCTAssertTrue(liveActivity.isEnabled)
+        XCTAssertFalse(element(app, "live-activity-status").exists)
         attachScreenshot(app, "trains")
     }
 
@@ -173,6 +174,33 @@ final class PATHStatUITests: XCTestCase {
         scroll(app, until: hoboken, direction: .up)
         hoboken.tap()
         wait(for: header, "label CONTAINS 'Hoboken'")
+    }
+
+    // MARK: Live Activity (in-memory stub backend in scenario mode)
+
+    @MainActor
+    func testStartAndStopLiveActivity() {
+        let app = launch(scenario: "trains")
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        let button = element(app, "live-activity-button")
+        XCTAssertTrue(button.waitForExistence(timeout: timeout))
+        scroll(app, until: button, direction: .up)
+        button.tap()
+
+        let status = element(app, "live-activity-status")
+        XCTAssertTrue(status.waitForExistence(timeout: timeout))
+        XCTAssertTrue(status.label.contains("Live"), status.label)
+        XCTAssertFalse(element(app, "live-activity-button").exists)
+        let stop = element(app, "live-activity-stop")
+        XCTAssertTrue(stop.exists)
+        scroll(app, until: stop, direction: .up)
+        attachScreenshot(app, "live-activity-started")
+
+        stop.tap()
+        wait(for: status, "exists == false")
+        XCTAssertTrue(element(app, "live-activity-button").waitForExistence(timeout: timeout))
+        XCTAssertFalse(element(app, "live-activity-stop").exists)
+        attachScreenshot(app, "live-activity-stopped")
     }
 
     // MARK: Helpers

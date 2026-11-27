@@ -8,12 +8,15 @@ struct MainView: View {
     let location: LocationService
     /// Live mode only: shares fetched snapshots with the widget.
     var widgetSync: WidgetSync?
+    let liveActivities: LiveActivityController
+    let feedback: FeedbackCenter
 
     /// Feed refresh cadence while the screen is visible and the app is active.
     static let refreshInterval: Duration = .seconds(20)
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingStationPicker = false
+    @State private var showingFeedbackSettings = false
 
     private struct RefreshKey: Hashable {
         let active: Bool
@@ -26,7 +29,32 @@ struct MainView: View {
                 if location.authorization == .denied {
                     LocationDeniedBanner(stationName: origin.shortName) { showingStationPicker = true }
                 }
-                stationHeader
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        stationHeader
+                        Button { feedback.present(trigger: .button) } label: {
+                            Image(systemName: "exclamationmark.bubble")
+                                .font(.title3)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Send feedback")
+                        .accessibilityHint("Report a bug, design nit, frustration, or idea.")
+                        .accessibilityIdentifier("send-feedback-button")
+                    }
+                    if feedback.pendingCount > 0 {
+                        Button { showingFeedbackSettings = true } label: {
+                            Label(
+                                feedback.pendingCount == 1 ? "1 report waiting to send" : "\(feedback.pendingCount) reports waiting to send",
+                                systemImage: "tray.and.arrow.up"
+                            )
+                            .font(.footnote)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("feedback-pending")
+                    }
+                }
                 VStack(alignment: .leading, spacing: 10) {
                     tripHeader
                     DestinationChips(
@@ -42,12 +70,17 @@ struct MainView: View {
                     favorites: model.favorites,
                     current: model.trip,
                     select: { model.select($0, manual: true) },
-                    remove: model.removeFavorite
+                    remove: model.removeFavorite,
+                    startLiveActivity: startLiveActivity
                 )
-                LiveActivityPlaceholder()
+                LiveActivitySection(controller: liveActivities, trip: model.trip) {
+                    startLiveActivity(model.trip)
+                }
+                FeedbackRow(center: feedback) { showingFeedbackSettings = true }
             }
             .padding()
         }
+        .environment(feedback)
         .background(Color(.systemGroupedBackground))
         .refreshable { await model.refresh() }
         // Refresh now, then every 20 s; restarts when the trip changes or the app returns to
@@ -65,14 +98,30 @@ struct MainView: View {
             }
         }
         .task { location.start() }
+        .task {
+            feedback.contextProvider = { [model, location, liveActivities] context in
+                FeedbackContextBuilder.fill(&context, model: model, location: location, liveActivities: liveActivities)
+            }
+            feedback.installDebugShakeButton()
+            feedback.start()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { location.refresh() }
-            if phase == .background { widgetSync?.didEnterBackground() }
+            if phase == .active {
+                location.refresh()
+                liveActivities.sync()
+                feedback.sceneDidBecomeActive()
+            }
+            if phase == .background {
+                widgetSync?.didEnterBackground()
+                liveActivities.didEnterBackground()
+            }
         }
         .onChange(of: model.lastFetchAt) { _, _ in
             // `lastFetchAt` only changes on a successful fetch.
             if let snapshot = model.snapshot { widgetSync?.didFetch(snapshot) }
+            updateLiveActivity()
         }
+        .onChange(of: model.errorMessage) { _, _ in updateLiveActivity() }
         .onChange(of: location.location, initial: true) { _, newLocation in
             model.locationDidChange(newLocation, authorization: location.authorization)
         }
@@ -84,12 +133,31 @@ struct MainView: View {
         }
         .sheet(isPresented: $showingStationPicker) {
             StationPickerView(current: model.trip.origin, location: location.location, select: model.selectStation)
+                .onAppear { feedback.currentScreen = "station picker" }
+                .onDisappear { feedback.currentScreen = "main" }
+        }
+        .sheet(isPresented: $showingFeedbackSettings) {
+            FeedbackSettingsView(center: feedback)
         }
     }
 
     private var origin: Station { StationCatalog.station(model.trip.origin) }
 
+    private func startLiveActivity(_ trip: Trip) {
+        Task { await liveActivities.start(trip: trip, snapshot: model.snapshot, fetchFailed: model.errorMessage != nil) }
+    }
+
+    private func updateLiveActivity() {
+        Task { await liveActivities.update(snapshot: model.snapshot, fetchFailed: model.errorMessage != nil) }
+    }
+
     // MARK: Header
+
+    /// "nearest" / "home station" / "selected": the header's context, without any distance.
+    static func stationContextWord(origin: StationCode, location: CLLocation?) -> String {
+        if let location, StationCatalog.stations(nearest: location).first?.station.code == origin { return "nearest" }
+        return origin == TripPlanner.homeStation ? "home station" : "selected"
+    }
 
     private var stationContext: (text: String, spoken: String) {
         if let here = location.location,
@@ -212,6 +280,8 @@ private struct BoardContent: View {
 private struct NoTrainsState: View {
     let destination: Station
 
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "tram")
@@ -230,6 +300,7 @@ private struct NoTrainsState: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("state-no-trains")
+        .onAppear { feedback?.record("No trains to \(destination.shortName)") }
     }
 }
 
@@ -237,6 +308,8 @@ private struct OfflineState: View {
     let message: String
     let isRetrying: Bool
     let retry: () -> Void
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -266,11 +339,14 @@ private struct OfflineState: View {
         .frame(maxWidth: .infinity)
         .padding(24)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onAppear { feedback?.record("Can't reach PATH: \(message)") }
     }
 }
 
 private struct OfflineBanner: View {
     let age: TimeInterval
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         Label("Can't update — showing data from \(Format.age(age)) ago", systemImage: "wifi.slash")
@@ -282,12 +358,15 @@ private struct OfflineBanner: View {
             .background(Color.orange, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("offline-banner")
+            .onAppear { feedback?.record("Can't update — showing old data") }
     }
 }
 
 private struct FreshnessFooter: View {
     let board: DepartureBoard
     let now: Date
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -299,6 +378,7 @@ private struct FreshnessFooter: View {
             if case .stale = board.freshness(at: now) {
                 Label("PATH data may be out of date", systemImage: "clock.badge.exclamationmark")
                     .foregroundStyle(.orange)
+                    .onAppear { feedback?.record("PATH data may be out of date") }
             }
         }
         .font(.footnote)
@@ -390,6 +470,7 @@ private struct LocationDeniedBanner: View {
     let chooseStation: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -405,6 +486,7 @@ private struct LocationDeniedBanner: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("location-denied-banner")
+        .onAppear { feedback?.record("Location is off") }
     }
 
     @ViewBuilder
@@ -420,23 +502,151 @@ private struct LocationDeniedBanner: View {
     }
 }
 
-/// Phase-4 hook: Live Activities aren't implemented yet.
-private struct LiveActivityPlaceholder: View {
+/// Start / stop the Live Activity for the current trip, or switch it from another trip.
+private struct LiveActivitySection: View {
+    let controller: LiveActivityController
+    let trip: Trip
+    let start: () -> Void
+
+    @Environment(\.openURL) private var openURL
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
+
     var body: some View {
-        VStack(spacing: 4) {
-            Button {} label: {
-                Label("Start Live Activity", systemImage: "dot.radiowaves.left.and.right")
-                    .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            if let active = controller.activeTrip {
+                status(active)
+                if !active.sameRoute(as: trip) {
+                    startButton("Switch to this trip", hint: "Shows \(trip.title) on the Lock Screen instead.")
+                }
+                Button(role: .destructive) {
+                    Task { await controller.stop() }
+                } label: {
+                    Label("Stop Live Activity", systemImage: "stop.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("live-activity-stop")
+            } else if controller.areActivitiesEnabled {
+                startButton("Start Live Activity", hint: "Shows the next trains on the Lock Screen and in the Dynamic Island.")
+            } else {
+                Text("Live Activities are turned off for PATH Stat. Turn them on in Settings to see the next trains on your Lock Screen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("live-activity-disabled")
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("live-activity-settings")
             }
-            .buttonStyle(.bordered)
-            .disabled(true)
-            .accessibilityHint("Coming soon")
-            .accessibilityIdentifier("live-activity-button")
-            Text("Coming soon")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            if let error = controller.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("live-activity-error")
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: controller.errorMessage, initial: true) { _, error in
+            if let error { feedback?.record("Live Activity: \(error)") }
+        }
+    }
+
+    private func startButton(_ title: String, hint: String) -> some View {
+        Button(action: start) {
+            Label(title, systemImage: "dot.radiowaves.left.and.right")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier("live-activity-button")
+    }
+
+    @ViewBuilder
+    private func status(_ active: Trip) -> some View {
+        let isThisTrip = active.sameRoute(as: trip)
+        Group {
+            if let endsAt = controller.endsAt {
+                if isThisTrip {
+                    Text("Live on Lock Screen · until \(Text(endsAt, style: .time))")
+                } else {
+                    Text("Live on Lock Screen: \(active.title) · until \(Text(endsAt, style: .time))")
+                }
+            } else {
+                Text(isThisTrip ? "Live on Lock Screen" : "Live on Lock Screen: \(active.title)")
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.green)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("live-activity-status")
+    }
+}
+
+// MARK: - Feedback
+
+/// Send feedback, feedback settings, and how many reports are waiting to send.
+private struct FeedbackRow: View {
+    let center: FeedbackCenter
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button { center.present(trigger: .button) } label: {
+                    Label("Send feedback", systemImage: "exclamationmark.bubble")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Shake the phone to report from any screen.")
+                .accessibilityIdentifier("send-feedback-footer")
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Feedback settings")
+                .accessibilityIdentifier("feedback-settings-button")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Fills a report's context from the main screen's state. Location is reduced to the
+/// permission and the station header's context word; never coordinates or distances.
+@MainActor
+enum FeedbackContextBuilder {
+    static func fill(_ context: inout FeedbackContext, model: BoardModel, location: LocationService, liveActivities: LiveActivityController) {
+        let now = Date.now
+        context.trip = FeedbackContext.tripDescription(model.trip)
+        context.stationContext = MainView.stationContextWord(origin: model.trip.origin, location: location.location)
+        context.locationPermission = switch location.authorization {
+        case .authorized: "authorized"
+        case .denied: "denied"
+        case .notDetermined: "not determined"
+        }
+        context.feedFetchedAt = model.lastFetchAt
+        context.lastFeedError = model.errorMessage
+        if let board = model.board(now: now) {
+            context.feedAgeSeconds = board.age(at: now).map { Int($0) }
+            context.feedFreshness = switch board.freshness(at: now) {
+            case .fresh: "fresh"
+            case .stale: "stale"
+            case .unknown: "unknown"
+            }
+        }
+        var live: String
+        if let trip = liveActivities.activeTrip {
+            live = "Live: \(trip.title)"
+            if let endsAt = liveActivities.endsAt {
+                live += " until \(endsAt.formatted(Date.ISO8601FormatStyle()))"
+            }
+        } else {
+            live = liveActivities.areActivitiesEnabled ? "Off" : "Disabled in Settings"
+        }
+        if let error = liveActivities.errorMessage { live += " (error: \(error))" }
+        context.liveActivity = live
     }
 }
 
@@ -444,35 +654,35 @@ private struct LiveActivityPlaceholder: View {
 
 #Preview("Trains") {
     let environment = Scenario.trains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Near 23rd St") {
     let environment = Scenario.trains.makeEnvironment(location: StationCatalog.station(.twentyThirdStreet).location)
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Loading") {
     let environment = Scenario.loading.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("No trains") {
     let environment = Scenario.noTrains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Offline") {
     let environment = Scenario.offline.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Offline with data") {
     let environment = Scenario.offlineWithData.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Location denied") {
     let environment = Scenario.locationDenied.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
