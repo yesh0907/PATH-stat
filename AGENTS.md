@@ -2,7 +2,10 @@
 
 Native iOS SwiftUI app for PATH train arrivals. All data logic lives in the local
 package `Packages/PATHKit` (including the screen's `@MainActor @Observable BoardModel`, tested in
-`BoardModelTests`); the app target `PATHStat` is a thin UI over it.
+`BoardModelTests`); the app target `PATHStat` is a thin UI over it. `PATHStatWidget` is the
+"Next PATH train" WidgetKit extension (Home Screen + Lock Screen), embedded in the app; its
+timeline logic is PATHKit's `WidgetTimeline`, and it shares data with the app through the App
+Group `group.com.yesh0907.PATHStat` (`TripStore.shared`, `SnapshotCache.shared`).
 
 ## Verified commands
 
@@ -26,6 +29,9 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -only-testing:PATHStatUITests                               # UI tests only
+xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:PATHStatUITests/WidgetGalleryUITests          # widget views, all states
 ```
 
 ### UI-test scenarios and screenshots
@@ -37,6 +43,11 @@ throwaway `TripStore` suite and fixed location state; it never creates `CLLocati
 `offlineWithData` starts from a 3-minute-old `initialSnapshot` and every fetch fails, so the
 `offline-banner` appears after the first refresh. UI coverage also includes switching trips from
 a favorite.
+`-WidgetGallery <live|stale|offline|unavailable|noTrains>` instead shows every widget family
+(shared views from `PATHStatWidgetUI/`, fixed `WidgetTimeline` entries from PATHKit's sample
+snapshots) on one screen, identifier `widget-gallery` (tiles: `widget-systemSmall`, ...).
+`WidgetGalleryUITests` attaches `widget-gallery-<state>`. Scenario and gallery modes never
+write the App Group cache or reload widget timelines (`WidgetSync` is live-only).
 UI tests find elements by accessibility identifier (`station-header`, `destination-<CODE>`,
 `favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `offline-banner`, `state-loading`, ...);
 keep identifiers stable when editing views.
@@ -60,6 +71,15 @@ xcrun simctl ui $UDID content_size extra-extra-extra-large  # reset: large
 xcrun simctl openurl $UDID 'pathstat://trip?from=HOB&to=WTC'  # deep link (shows a system confirm)
 ```
 
+Real widget on the Home Screen (opt-in: live feed, edits the Simulator's Home Screen through
+Springboard, best effort across iOS versions; skipped unless the env var is set):
+
+```sh
+TEST_RUNNER_PATH_WIDGET_SCREENSHOTS=1 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:PATHStatUITests/HomeScreenWidgetUITests -resultBundlePath /tmp/pathstat/Widget.xcresult
+```
+
 `simctl openurl` leaves an "Open in PATH Stat?" prompt that `simctl` can't dismiss. While it
 is up, the app's `scenePhase` is not `.active`, so the refresh loop never starts and UI tests
 time out showing "Loading trains…". Before running UI tests, go to the home screen, or
@@ -80,14 +100,28 @@ If a simulator boot fails with "Unable to locate launchd_sim", run
 - Never set any other team, and never register bundle IDs, devices, App Groups, capabilities,
   certificates or profiles under another team (e.g. an employer team). No TestFlight/App Store.
 - Free personal teams lack some capabilities (e.g. APNs push); design around them.
+- No TestFlight/App Store, and no APNs push: the user is on a free Personal Team (installed
+  builds expire after 7 days). These limits lift only once the user sets up their own paid
+  individual account — never by using any other team.
+- The widget extension (`com.yesh0907.PATHStat.PATHStatWidget`) uses the same team. The App
+  Group `group.com.yesh0907.PATHStat` (in `PATHStat/PATHStat.entitlements` and
+  `PATHStatWidget/PATHStatWidget.entitlements`) must only ever be registered under
+  `63L4D2UQLD`. Code must keep working without it (`TripStore.shared` / `SnapshotCache.shared`
+  fall back to standard defaults / the caches directory).
+- Never pass `-allowProvisioningUpdates`; build for the Simulator only unless the user asks.
 
 ## Conventions
 
 - `PATHStat.xcodeproj/project.pbxproj` is hand-written (objectVersion 77). `PATHStat/` and
   `PATHStatUITests/` are file-system synchronized groups: new files under them join their
   target automatically, so add source files without editing the pbxproj.
+  `PATHStatWidget/` (extension) and `PATHStatWidgetUI/` (shared widget views, `Color+Hex.swift`)
+  are synchronized groups too; `PATHStatWidgetUI/` is a member of both the app and the widget
+  target, so code there must compile in both (views take `family: WidgetFamily` explicitly).
   `PATHStat/Info.plist` (URL scheme `pathstat`) is excluded from the app's membership via an
-  exception set and merged through `INFOPLIST_FILE`; other Info keys use `INFOPLIST_KEY_*`. Edit the pbxproj only for build settings,
+  exception set and merged through `INFOPLIST_FILE`; other Info keys use `INFOPLIST_KEY_*`.
+  Likewise `PATHStatWidget/Info.plist` (`NSExtension`, `NSWidgetWantsLocation`) and both
+  `.entitlements` files are excluded from membership. Edit the pbxproj only for build settings,
   targets, or package references, and re-run `xcodebuild -list` afterwards.
 - No third-party dependencies, in the package or the app.
 - Package is Swift 6 language mode; keep public types `Sendable`.
@@ -97,6 +131,8 @@ If a simulator boot fails with "Unable to locate launchd_sim", run
 - Anything that touches the network belongs in `LiveFeedTests` (gated on `PATH_LIVE=1`).
 - UI tests are XCTest (required for XCUIApplication) and must use scenario mode, never the live feed.
 - Put pure logic (trip planning, filtering, persistence) in PATHKit with tests; keep the app thin.
+- Widget countdowns must stay correct without reloads: `Text(timerInterval:countsDown:)`,
+  `Text(date, style: .time/.relative)`, never a precomputed minute count or `.timer` style.
 - Never log location or coordinates; feed errors go to `Logger(subsystem: "com.yesh0907.PATHStat", category: "feed")`.
 - "toward X" means the train *stops at X after this station* on its identified line, in its
   direction — not that X is the terminus. Only an unidentified line falls back to `target == X`.

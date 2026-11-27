@@ -45,13 +45,46 @@ stays if it's still reachable on one line (`TripPlanner.defaultDestination(from:
 
 ### Hooks for later phases
 
-- **Phase 3 (widget)**: `Trip.url` / `Trip(url:)` deep links (`pathstat://trip?from=GRV&to=33S`),
-  handled by `.onOpenURL`. The `pathstat` URL scheme is registered in `PATHStat/Info.plist`.
-  `TripStore(suiteName:)` accepts an App Group suite if one turns out to be needed.
+- **Phase 3 (widget)**: done (see below); the widget opens trips through the
+  `Trip.url` / `Trip(url:)` deep links (`pathstat://trip?from=GRV&to=33S`).
 - **Phase 4 (Live Activities)**: a disabled "Start Live Activity" button ("Coming soon").
 
 Screenshots: `docs/screenshots/phase2/` (live feed with simulated location: light, dark, and
 XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI test).
+
+## Phase 3: the widget
+
+| Live | Stale | Offline | Can't reach PATH | No trains |
+|---|---|---|---|---|
+| ![](docs/screenshots/phase3/widget-gallery-live.png) | ![](docs/screenshots/phase3/widget-gallery-stale.png) | ![](docs/screenshots/phase3/widget-gallery-offline.png) | ![](docs/screenshots/phase3/widget-gallery-unavailable.png) | ![](docs/screenshots/phase3/widget-gallery-noTrains.png) |
+
+On the Home Screen: `docs/screenshots/phase3/home-screen-widgets.png`.
+
+- **"Next PATH train"** widget (`PATHStatWidget` extension) in **small** and **medium** on the
+  Home Screen, and **rectangular**, **inline** and **circular** on the Lock Screen. Tapping it
+  opens the app on that trip (`pathstat://trip?...`).
+- **Configuration** (long-press → Edit Widget): *Saved trip* (your favourites, default Grove St
+  → 33rd St), *Station & destination* (destinations limited to stations on one line from the
+  chosen station), or *Nearest station* (a one-shot location fix when location is allowed for
+  the app and widgets; otherwise Grove St → 33rd St with "Location unavailable").
+- **Shows** the trip, line colour and headsign, a live m:ss countdown ("Due" on arrival), the
+  arrival time, the following train(s) and "Updated … ago".
+- **States**: no trains ("No trains predicted · Service may be suspended"), stale data (orange
+  "Updated 14 min ago" after 10 min), offline (orange "Can't update" with the cached trains),
+  and no data at all ("Can't reach PATH · Tap to open").
+- **Refresh**: each timeline is built from one feed snapshot (`WidgetTimeline`), with entries at
+  every arrival and departure so trains roll off on time and countdowns tick without reloads.
+  iOS decides when to actually reload: the widget asks for the earlier of 15 min and the last
+  listed train's departure (never sooner than 5 min); 5 min after a failure; 30 min when no
+  trains are predicted. The app saves every fetched snapshot to the shared App Group cache and
+  reloads widgets at most once a minute, and again when it goes to the background, so opening
+  the app refreshes the widget. Widgets are not real-time: expect data up to ~15 min old.
+- **Sharing**: App Group `group.com.yesh0907.PATHStat` holds favourites / last trip
+  (`TripStore.shared`, migrated once from the app's old standard defaults) and the latest
+  snapshot (`SnapshotCache.shared`). Without the App Group everything still works; the widget
+  just fetches for itself and offers the preset trips.
+- **Screenshots without a widget host**: launch the app with `-WidgetGallery <state>` (see
+  AGENTS.md); `WidgetGalleryUITests` captures one per state.
 
 ## Data sources
 
@@ -113,7 +146,9 @@ data[]
 ```text
 PATHStat.xcodeproj/          iOS app project (hand-written, objectVersion 77) + shared PATHStat scheme
 PATHStat/                    SwiftUI app sources (file-system synchronized group)
-PATHStatUITests/             XCUITest UI tests driving the app's -UITestScenario modes
+PATHStatUITests/             XCUITest UI tests driving the app's -UITestScenario / -WidgetGallery modes
+PATHStatWidget/              WidgetKit extension: AppIntent configuration, timeline provider
+PATHStatWidgetUI/            widget views shared by the app (gallery) and the extension
 Packages/PATHKit/
   Sources/PATHKit/           library: stations, lines, feed/alerts parsing, PATHClient
   Sources/path-live/         macOS debug CLI
@@ -126,6 +161,8 @@ nearest station, lines and direction between stations), `ServiceAlert`, `PATHErr
 Phase 2 adds `Trip` (+ presets, deep links), `StationCatalog.destinationOptions(from:)`,
 `PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, `TripStore`, and `BoardModel` (the
 main screen's `@Observable` state: trip selection, location default, single-flight refresh).
+Phase 3 adds `WidgetTimeline`, `WidgetTripResolver`, `SnapshotCache`, `ReloadThrottle`,
+`TripStore.shared` and `PATHSnapshot.sampleTrains(now:)` / `sampleNoTrains(now:)`.
 
 ## Build, test, run
 
@@ -151,5 +188,7 @@ Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.
   personal team is enough for everything in the current scope.
 - A paid Apple Developer account becomes useful later for APNs: push-to-start Live Activities
   and server-pushed Live Activity updates.
-- App Groups (to share data between the app and a widget) will be evaluated in phase 3. They
-  may not be needed, since the widget can fetch the public feed itself with `PATHKit`.
+- The widget extension uses the same team. The App Group `group.com.yesh0907.PATHStat` is
+  registered only under that team; the app and widget degrade gracefully without it.
+- No TestFlight/App Store and no APNs push on a free Personal Team (installed builds expire
+  after 7 days); these need the user's own paid individual account.

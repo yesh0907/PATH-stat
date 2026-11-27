@@ -44,10 +44,12 @@ final class LocationService {
         if manager == nil {
             let manager = CLLocationManager()
             let delegate = Delegate(owner: self)
-            manager.delegate = delegate
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            // Store both before setting the delegate: CoreLocation may call
+            // `locationManagerDidChangeAuthorization` immediately, and that guards on `self.manager`.
             self.manager = manager
             self.delegate = delegate
+            manager.delegate = delegate
         }
     }
 

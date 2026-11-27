@@ -6,6 +6,8 @@ import SwiftUI
 struct MainView: View {
     let model: BoardModel
     let location: LocationService
+    /// Live mode only: shares fetched snapshots with the widget.
+    var widgetSync: WidgetSync?
 
     /// Feed refresh cadence while the screen is visible and the app is active.
     static let refreshInterval: Duration = .seconds(20)
@@ -65,6 +67,11 @@ struct MainView: View {
         .task { location.start() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { location.refresh() }
+            if phase == .background { widgetSync?.didEnterBackground() }
+        }
+        .onChange(of: model.lastFetchAt) { _, _ in
+            // `lastFetchAt` only changes on a successful fetch.
+            if let snapshot = model.snapshot { widgetSync?.didFetch(snapshot) }
         }
         .onChange(of: location.location, initial: true) { _, newLocation in
             model.locationDidChange(newLocation, authorization: location.authorization)
