@@ -229,7 +229,7 @@ struct FeedbackSheet: View {
     @ViewBuilder
     private func shareLink(label: String) -> some View {
         let report = FeedbackReport(note: note, category: category, context: context)
-        let text = FeedbackShare.text(for: report, hasScreenshot: screenshotPNG != nil)
+        let text = FeedbackShare.text(for: report, hasScreenshot: includeScreenshot && image != nil)
         let title = FeedbackIssueFormatter.title(for: report)
         Group {
             if let image, includeScreenshot {

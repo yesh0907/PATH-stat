@@ -117,13 +117,15 @@ public actor FeedbackQueue {
         try Self.encoder.encode(item).write(to: jsonFile(item.id), options: .atomic)
     }
 
-    private func markSent(_ item: QueuedFeedback, issue: CreatedIssue, at now: Date) throws {
-        let record = SentFeedback(id: item.id, title: FeedbackIssueFormatter.title(for: item.report), issue: issue, sentAt: now)
-        let sent = Array(([record] + sent().filter { $0.id != item.id }).prefix(Self.sentLimit))
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Self.encoder.encode(sent).write(to: sentFile, options: .atomic)
+    private func markSent(_ item: QueuedFeedback, issue: CreatedIssue, at now: Date) {
+        // The pending report is what triggers a resend: it must go first, so even a crash or a
+        // failed history write below can't create a duplicate issue.
         try? fileManager.removeItem(at: jsonFile(item.id))
         try? fileManager.removeItem(at: pngFile(item.id))
+        let record = SentFeedback(id: item.id, title: FeedbackIssueFormatter.title(for: item.report), issue: issue, sentAt: now)
+        let sent = Array(([record] + sent().filter { $0.id != item.id }).prefix(Self.sentLimit))
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Self.encoder.encode(sent).write(to: sentFile, options: .atomic)
     }
 
     // MARK: Delivery
@@ -137,7 +139,7 @@ public actor FeedbackQueue {
     @discardableResult
     public func process(using service: (any FeedbackIssueService)?, now: Date = .now, force: Bool = false) async -> [UUID: FeedbackDeliveryOutcome] {
         if let inFlight {
-            rerun = (service ?? rerun?.service, max(now, rerun?.now ?? now), force || (rerun?.force ?? false))
+            rerun = (service, max(now, rerun?.now ?? now), force || (rerun?.force ?? false))
             return await inFlight.value
         }
         let task = Task { await self.runPasses(service: service, now: now, force: force) }
@@ -149,7 +151,7 @@ public actor FeedbackQueue {
         var outcomes = await pass(service: service, now: now, force: force)
         while let next = rerun {
             rerun = nil
-            outcomes.merge(await pass(service: next.service ?? service, now: next.now, force: next.force)) { _, new in new }
+            outcomes.merge(await pass(service: next.service, now: next.now, force: next.force)) { _, new in new }
         }
         // Cleared synchronously after the last rerun check, so no caller can be left behind.
         inFlight = nil
@@ -182,7 +184,7 @@ public actor FeedbackQueue {
                     labelsReady = true
                 }
                 let issue = try await service.createIssue(FeedbackIssueFormatter.draft(for: item.report, screenshotURL: item.screenshotURL))
-                try? markSent(item, issue: issue, at: now)
+                markSent(item, issue: issue, at: now)
                 outcomes[item.id] = .sent(issue)
             } catch {
                 let failure = FeedbackSendError.from(error)

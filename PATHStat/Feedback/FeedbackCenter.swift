@@ -118,12 +118,17 @@ final class FeedbackCenter {
     /// Screenshots the key window, then presents the feedback sheet over the topmost screen.
     /// Ignored while the sheet is already up.
     func present(trigger: Trigger) {
+        // Self-heal a stale reference: the controller is no longer on screen but was never cleared.
+        if let presented, presented.presentingViewController == nil, !presented.isBeingPresented {
+            self.presented = nil
+            presentationDelegate = nil
+        }
         guard presented == nil, let window = Self.keyWindow() else { return }
-        let screenshot = Self.capture(window)
-        let context = makeContext(window: window)
         var top = window.rootViewController
         while let next = top?.presentedViewController { top = next }
-        guard let top else { return }
+        guard let top, !top.isBeingDismissed, !top.isBeingPresented else { return }
+        let screenshot = Self.capture(window)
+        let context = makeContext(window: window)
 
         let host = UIHostingController(rootView: FeedbackSheet(
             center: self,
@@ -143,8 +148,11 @@ final class FeedbackCenter {
 
     func dismissSheet() {
         guard let presented else { return }
-        presented.dismiss(animated: true)
-        self.presented = nil
+        presented.dismiss(animated: true) { [weak self] in
+            if self?.presented === presented {
+                self?.presented = nil
+            }
+        }
     }
 
     private final class PresentationDelegate: NSObject, UIAdaptivePresentationControllerDelegate {

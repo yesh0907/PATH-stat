@@ -341,4 +341,20 @@ struct FeedbackQueueTests {
         guard case .sent? = joined[late.id] else { Issue.record("late report should be sent: \(joined)"); return }
         #expect(service.created.map(\.title) == ["old", "late"])
     }
+
+    @Test func tokenRemovedDuringPassWinsForRerun() async throws {
+        let queue = makeQueue()
+        let service = FakeIssueService()
+        service.delay = .milliseconds(50)
+        try await queue.enqueue(report("old"), screenshot: nil)
+        async let first = queue.process(using: service, now: clock.now)
+        try await Task.sleep(for: .milliseconds(10))
+        let late = try await queue.enqueue(report("late", offset: 5), screenshot: nil)
+        // Joining with a nil service (token removed) must override the in-flight pass's service.
+        let joined = await queue.process(using: nil, now: clock.now, force: true)
+        _ = await first
+        #expect(joined[late.id] == .waiting(.noToken))
+        #expect(service.created.map(\.title) == ["old"])
+        #expect(await queue.pending().map(\.id) == [late.id])
+    }
 }

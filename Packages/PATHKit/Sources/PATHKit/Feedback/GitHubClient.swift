@@ -145,8 +145,13 @@ public struct GitHubClient: FeedbackIssueService {
             content: png.base64EncodedString(),
             branch: Self.assetsBranch
         )
-        // 422: the file already exists (an earlier attempt uploaded it), which is fine.
-        _ = try await send("PUT", repoPath("contents") + "/" + encodePath(path), body: body, accepting: [422])
+        // 422 usually means the file already exists (an earlier attempt uploaded it); verify
+        // with a contents GET before treating it as success.
+        let put = try await send("PUT", repoPath("contents") + "/" + encodePath(path), body: body, accepting: [422])
+        if put.status == 422 {
+            let check = try await send("GET", repoPath("contents") + "/" + encodePath(path) + "?ref=\(Self.assetsBranch)", accepting: [404])
+            guard check.status == 200 else { throw Self.error(for: put) }
+        }
         return URL(string: "https://github.com/\(repo.owner)/\(repo.name)/blob/\(Self.assetsBranch)/\(encodePath(path))?raw=true")!
     }
 

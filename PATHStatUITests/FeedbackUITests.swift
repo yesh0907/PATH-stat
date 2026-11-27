@@ -51,6 +51,19 @@ final class FeedbackUITests: XCTestCase {
         shake(app)
         XCTAssertTrue(element(app, "feedback-note").exists)
         element(app, "feedback-cancel").tap()
+        // Regression: a shake during the dismissal animation must not wedge presentation.
+        shake(app)
+        Thread.sleep(forTimeInterval: 1)   // let the dismissal (and any re-open) settle
+        if element(app, "feedback-sheet").exists {
+            // Tolerated: the shake re-opened the sheet after dismissal completed.
+            element(app, "feedback-cancel").tap()
+        }
+        wait(for: element(app, "feedback-sheet"), "exists == false")
+
+        // A shake after the sheet is fully gone opens it again.
+        shake(app)
+        XCTAssertTrue(element(app, "feedback-sheet").waitForExistence(timeout: timeout))
+        element(app, "feedback-cancel").tap()
         wait(for: element(app, "feedback-sheet"), "exists == false")
 
         // Over the station picker: the sheet presents on top and the picker stays underneath.
@@ -185,7 +198,7 @@ final class FeedbackUITests: XCTestCase {
 
     @MainActor
     private func attachScreenshot(_ app: XCUIApplication, _ name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)

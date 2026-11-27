@@ -214,6 +214,7 @@ struct GitHubClientTests {
     @Test func refAlreadyExistsAndFileAlreadyExistsAreSuccess() async throws {
         let (client, base) = client { request in
             switch (request.method, request.path) {
+            case ("GET", "\(Self.repoPath)/contents/\(Self.path)"): .json(200, #"{"sha":"x"}"#)
             case ("GET", _): .json(404)
             case ("POST", "\(Self.repoPath)/git/refs"): .json(422, #"{"message":"Reference already exists"}"#)
             case ("POST", _): .json(201, #"{"sha":"abc"}"#)
@@ -223,7 +224,27 @@ struct GitHubClientTests {
         }
         let url = try await client.uploadScreenshot(Self.png, path: Self.path, message: Self.message)
         #expect(url.absoluteString == Self.rawURL)
-        #expect(StubURLProtocol.requests(to: base).count == 5)
+        let requests = StubURLProtocol.requests(to: base)
+        #expect(requests.count == 6)
+        let contentsGet = try #require(requests.last)
+        #expect(contentsGet.method == "GET")
+        #expect(contentsGet.path == "\(Self.repoPath)/contents/\(Self.path)")
+        #expect(contentsGet.url.query() == "ref=feedback-assets")
+    }
+
+    @Test func putValidationFailureWithoutFileThrowsValidation() async throws {
+        let (client, base) = client { request in
+            switch (request.method, request.path) {
+            case ("GET", "\(Self.repoPath)/git/ref/heads/feedback-assets"): .json(200, #"{"ref":"refs/heads/feedback-assets"}"#)
+            case ("GET", "\(Self.repoPath)/contents/\(Self.path)"): .json(404, #"{"message":"Not Found"}"#)
+            case ("PUT", _): .json(422, #"{"message":"Validation Failed","errors":[{"code":"invalid"}]}"#)
+            default: .json(500)
+            }
+        }
+        await #expect(throws: FeedbackSendError.validation("Validation Failed")) {
+            _ = try await client.uploadScreenshot(Self.png, path: Self.path, message: Self.message)
+        }
+        #expect(StubURLProtocol.requests(to: base).map(\.method) == ["GET", "PUT", "GET"])
     }
 
     @Test func uploadFailureMapsStatus() async {

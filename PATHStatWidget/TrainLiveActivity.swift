@@ -35,7 +35,7 @@ struct TrainLiveActivity: Widget {
                 TrainActivityMinimalView(trip: trip, state: state, isStale: isStale)
             }
             .widgetURL(trip.url)
-            .keylineTint(Color(hex: state.trains.first?.lineColors.first ?? "8E8E93"))
+            .keylineTint(Color(hex: (state.status == .ended ? nil : state.visibleTrains(isStale: isStale).first)?.lineColors.first ?? "8E8E93"))
         }
     }
 }
