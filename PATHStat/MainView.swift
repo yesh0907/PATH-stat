@@ -29,7 +29,32 @@ struct MainView: View {
                 if location.authorization == .denied {
                     LocationDeniedBanner(stationName: origin.shortName) { showingStationPicker = true }
                 }
-                stationHeader
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        stationHeader
+                        Button { feedback.present(trigger: .button) } label: {
+                            Image(systemName: "exclamationmark.bubble")
+                                .font(.title3)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Send feedback")
+                        .accessibilityHint("Report a bug, design nit, frustration, or idea.")
+                        .accessibilityIdentifier("send-feedback-button")
+                    }
+                    if feedback.pendingCount > 0 {
+                        Button { showingFeedbackSettings = true } label: {
+                            Label(
+                                feedback.pendingCount == 1 ? "1 report waiting to send" : "\(feedback.pendingCount) reports waiting to send",
+                                systemImage: "tray.and.arrow.up"
+                            )
+                            .font(.footnote)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("feedback-pending")
+                    }
+                }
                 VStack(alignment: .leading, spacing: 10) {
                     tripHeader
                     DestinationChips(
@@ -575,25 +600,13 @@ private struct FeedbackRow: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityHint("Shake the phone to report from any screen.")
-                .accessibilityIdentifier("send-feedback-button")
+                .accessibilityIdentifier("send-feedback-footer")
                 Button(action: openSettings) {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Feedback settings")
                 .accessibilityIdentifier("feedback-settings-button")
-            }
-            if center.pendingCount > 0 {
-                Button(action: openSettings) {
-                    Label(
-                        center.pendingCount == 1 ? "1 report waiting to send" : "\(center.pendingCount) reports waiting to send",
-                        systemImage: "tray.and.arrow.up"
-                    )
-                    .font(.footnote)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("feedback-pending")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

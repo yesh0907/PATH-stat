@@ -85,7 +85,6 @@ final class FeedbackUITests: XCTestCase {
         let pending = element(app, "feedback-pending")
         XCTAssertTrue(pending.waitForExistence(timeout: timeout))
         XCTAssertTrue(pending.label.contains("1 report waiting"), pending.label)
-        scroll(app, until: pending)
         pending.tap()
         XCTAssertTrue(element(app, "feedback-settings").waitForExistence(timeout: timeout))
         XCTAssertTrue(element(app, "feedback-token-field").exists)
@@ -153,7 +152,6 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
         let button = element(app, "send-feedback-button")
         XCTAssertTrue(button.waitForExistence(timeout: timeout))
-        scroll(app, until: button)
         button.tap()
         XCTAssertTrue(element(app, "feedback-sheet").waitForExistence(timeout: timeout))
         XCTAssertTrue(element(app, "feedback-note").waitForExistence(timeout: timeout))
@@ -172,15 +170,6 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(note.waitForExistence(timeout: timeout))
         note.tap()
         note.typeText(text)
-    }
-
-    /// Swipes up (at most a few times) until `target` is hittable.
-    @MainActor
-    private func scroll(_ app: XCUIApplication, until target: XCUIElement) {
-        for _ in 0..<6 where !target.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(target.isHittable, "\(target) is not hittable")
     }
 
     @MainActor

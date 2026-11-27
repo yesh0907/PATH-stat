@@ -112,7 +112,7 @@ For manual or visual checks — widgets on the Home/Lock Screen, Live Activity a
 
 ## Feedback pipeline
 
-In-app feedback (shake or **Send feedback**) becomes GitHub issues on `yesh0907/PATH-stat`.
+In-app feedback (shake or the top speech-bubble feedback button) becomes GitHub issues on `yesh0907/PATH-stat`.
 Logic is in `Packages/PATHKit/Sources/PATHKit/Feedback/` (`FeedbackIssueFormatter`,
 `GitHubClient`, `FeedbackQueue`, tested in `FeedbackFormatterTests`, `GitHubClientTests`,
 `FeedbackQueueTests` with `StubURLProtocol.registerHost`); app glue is in `PATHStat/Feedback/`

@@ -167,7 +167,7 @@ Report bugs, design nits, frustrations and ideas straight from the app; each rep
 GitHub issue on `yesh0907/PATH-stat`.
 
 - **Open it** by shaking the phone on any screen (including over the station picker and other
-  sheets), or with **Send feedback** at the bottom of the main screen. The gear next to it opens
+  sheets), or with the speech-bubble button next to the station name (or **Send feedback** at the bottom). The gear next to it opens
   feedback settings; "N reports waiting to send" appears there while anything is queued.
 - **The sheet** shows a screenshot of the screen as it was just before it opened (Mark up with a
   red pen, Undo, Clear; or Remove / Add screenshot back), a note ("What happened? First line
