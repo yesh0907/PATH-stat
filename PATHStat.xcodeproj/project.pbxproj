@@ -10,15 +10,44 @@
 		A1000000000000000000B001 /* PATHKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000C001 /* PATHKit */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000004001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000001001;
+			remoteInfo = PATHStat;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		A1000000000000000000F001 /* PATHStat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PATHStat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000F003 /* PATHStatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PATHStatUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000F002 /* PATHKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = PATHKit; path = Packages/PATHKit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A1000000000000000000D003 /* Exceptions for "PATHStat" folder in "PATHStat" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A10000000000000000001001 /* PATHStat */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A1000000000000000000D001 /* PATHStat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1000000000000000000D003 /* Exceptions for "PATHStat" folder in "PATHStat" target */,
+			);
 			path = PATHStat;
+			sourceTree = "<group>";
+		};
+		A1000000000000000000D002 /* PATHStatUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PATHStatUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,6 +61,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000E005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +76,7 @@
 			children = (
 				A1000000000000000000F002 /* PATHKit */,
 				A1000000000000000000D001 /* PATHStat */,
+				A1000000000000000000D002 /* PATHStatUITests */,
 				A1000000000000000000A002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000000000000000000F001 /* PATHStat.app */,
+				A1000000000000000000F003 /* PATHStatUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,6 +116,29 @@
 			productReference = A1000000000000000000F001 /* PATHStat.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000001002 /* PATHStatUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000003003 /* Build configuration list for PBXNativeTarget "PATHStatUITests" */;
+			buildPhases = (
+				A1000000000000000000E004 /* Sources */,
+				A1000000000000000000E005 /* Frameworks */,
+				A1000000000000000000E006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000004002 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1000000000000000000D002 /* PATHStatUITests */,
+			);
+			name = PATHStatUITests;
+			packageProductDependencies = (
+			);
+			productName = PATHStatUITests;
+			productReference = A1000000000000000000F003 /* PATHStatUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -90,6 +151,10 @@
 				TargetAttributes = {
 					A10000000000000000001001 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					A10000000000000000001002 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = A10000000000000000001001;
 					};
 				};
 			};
@@ -111,12 +176,20 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000001001 /* PATHStat */,
+				A10000000000000000001002 /* PATHStatUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A1000000000000000000E003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000000000000000000E006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -133,7 +206,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000E004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000004002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000001001 /* PATHStat */;
+			targetProxy = A10000000000000000004001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A10000000000000000002001 /* Debug */ = {
@@ -211,7 +299,9 @@
 				DEVELOPMENT_TEAM = 63L4D2UQLD;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PATHStat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PATH Stat";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PATH Stat uses your location to show the nearest PATH station and its next trains. Your location never leaves your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -243,7 +333,9 @@
 				DEVELOPMENT_TEAM = 63L4D2UQLD;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PATHStat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PATH Stat";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PATH Stat uses your location to show the nearest PATH station and its next trains. Your location never leaves your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -265,6 +357,44 @@
 			};
 			name = Release;
 		};
+		A10000000000000000002005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 63L4D2UQLD;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yesh0907.PATHStatUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = PATHStat;
+			};
+			name = Debug;
+		};
+		A10000000000000000002006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 63L4D2UQLD;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yesh0907.PATHStatUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = PATHStat;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -282,6 +412,15 @@
 			buildConfigurations = (
 				A10000000000000000002003 /* Debug */,
 				A10000000000000000002004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000003003 /* Build configuration list for PBXNativeTarget "PATHStatUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000002005 /* Debug */,
+				A10000000000000000002006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
