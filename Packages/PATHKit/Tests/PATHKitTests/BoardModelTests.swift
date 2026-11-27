@@ -72,6 +72,24 @@ struct BoardModelTests {
         #expect(model.trip == initial)
     }
 
+    // MARK: Destination
+
+    @Test func unreachableDestinationIsIgnored() {
+        let store = makeStore()
+        let model = BoardModel(store: store, fetch: { throw URLError(.notConnectedToInternet) })
+        let hobokenWTC = Trip(origin: .hoboken, destination: .worldTradeCenter)
+        model.select(hobokenWTC, manual: false)
+
+        model.selectDestination(.newark)   // no single line serves Hoboken → Newark
+        model.selectDestination(.hoboken)  // the origin itself
+        #expect(model.trip == hobokenWTC)
+        #expect(store.lastTrip == nil)
+
+        model.selectDestination(.thirtyThirdStreet)
+        #expect(model.trip.sameRoute(as: Trip(origin: .hoboken, destination: .thirtyThirdStreet)))
+        #expect(store.lastTrip?.sameRoute(as: model.trip) == true)
+    }
+
     // MARK: Refresh
 
     @Test func concurrentRefreshesShareOneFetch() async {

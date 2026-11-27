@@ -11,9 +11,34 @@ public struct TripStore: Sendable {
     static let favoritesKey = "PATHStat.favorites"
     static let lastTripKey = "PATHStat.lastTrip"
 
+    /// App Group shared by the app and its widget extension.
+    public static let appGroupSuite = "group.com.yesh0907.PATHStat"
+
     public init(suiteName: String? = nil) {
         self.suiteName = suiteName
     }
+
+    /// The App Group store when this process has the App Group entitlement (its container
+    /// exists and `UserDefaults(suiteName:)` accepts it), else `UserDefaults.standard`.
+    public static var shared: TripStore {
+        let hasGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupSuite) != nil
+            && UserDefaults(suiteName: appGroupSuite) != nil
+        return TripStore(suiteName: hasGroup ? appGroupSuite : nil)
+    }
+
+    /// One-time copy of favourites and the last trip from `legacy` (e.g. the pre-App Group
+    /// standard defaults). Runs only while this store has never saved favourites; it then
+    /// writes favourites (the legacy list, or the presets), so later calls do nothing.
+    /// Never overwrites an existing last trip, and does nothing when both use the same suite.
+    public func migrateIfNeeded(from legacy: TripStore) {
+        guard legacy.suiteName != suiteName, !hasSavedFavorites else { return }
+        favorites = legacy.favorites
+        if lastTrip == nil, let legacyLast = legacy.lastTrip {
+            lastTrip = legacyLast
+        }
+    }
+
+    var hasSavedFavorites: Bool { defaults.object(forKey: Self.favoritesKey) != nil }
 
     private var defaults: UserDefaults {
         suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard

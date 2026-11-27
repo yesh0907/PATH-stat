@@ -104,8 +104,10 @@ public final class BoardModel {
         select(namedRoute(from: station, to: destination), manual: true)
     }
 
+    /// Switches destination. Ignores one not reachable on a single line from the origin
+    /// (including the origin itself).
     public func selectDestination(_ destination: StationCode) {
-        guard destination != trip.origin else { return }
+        guard !StationCatalog.lines(serving: trip.origin, to: destination).isEmpty else { return }
         select(namedRoute(from: trip.origin, to: destination), manual: true)
     }
 
