@@ -161,6 +161,72 @@ only; nothing below exists in the code:
 - Push updates: see above; `TrainActivities` is the single place to add `pushType: .token`.
 - `TrainActivityState` is `Codable` and stable, ready to be the APNs `content-state`.
 
+## In-app feedback
+
+Report bugs, design nits, frustrations and ideas straight from the app; each report becomes a
+GitHub issue on `yesh0907/PATH-stat`.
+
+- **Open it** by shaking the phone on any screen (including over the station picker and other
+  sheets), or with **Send feedback** at the bottom of the main screen. The gear next to it opens
+  feedback settings; "N reports waiting to send" appears there while anything is queued.
+- **The sheet** shows a screenshot of the screen as it was just before it opened (Mark up with a
+  red pen, Undo, Clear; or Remove / Add screenshot back), a note ("What happened? First line
+  becomes the title"), and a category: **Bug** (default), **Design nit**, **Frustration**,
+  **Idea**. Send is enabled once there is a note or a screenshot. On success it shows
+  "Sent as #42" with a link to the issue; otherwise "Saved — will send later" and why.
+- **Context attached to every report** (`FeedbackContext`): app version and build, git commit
+  of the build (`PATHStatGitCommit`, `-dirty` for local changes, `unknown` without git), iOS
+  version, device model, the screen it was opened on, the trip ("Grove St → 33rd St (GRV →
+  33S)"), the station header's context word only (nearest / home station / selected), the
+  location permission only (authorized / denied / not determined), when the feed was fetched,
+  its age and freshness, the last feed error, the last five notices the app showed (offline
+  banner, can't reach PATH, stale data, location off, no trains, Live Activity errors, each
+  with a time), the Live Activity state, appearance (light / dark), Dynamic Type size, and a
+  timestamp. **No coordinates, distances or other location data are ever sent.**
+- **Labels**: exactly `feedback` plus one category label (`bug`, `design-nit`, `frustration`,
+  `idea`); the app creates any that are missing.
+- **Issue format**: the title is the note's first non-empty line (whitespace collapsed, at most
+  80 characters, cut at a word with "…"), or "Bug on main" when there is no note. The body is
+  the full note (or `_No note._`), the screenshot (`![Screenshot](…)` or `_No screenshot._`),
+  then a collapsed `<details>` "Context" block with a two-column table and the same context as
+  sorted-key JSON, and finally a hidden `<!-- pathstat-feedback-id: <UUID> -->`.
+- **Screenshots** go to the orphan branch `feedback-assets` (created by the app with just a
+  README, so it shares no history with `main` and is never merged) at
+  `screenshots/<yyyy-MM-dd UTC>/<report id>.png`, and the issue links
+  `https://github.com/yesh0907/PATH-stat/blob/feedback-assets/<path>?raw=true`, which renders
+  in the issue for anyone who can read the repo. Issues can't take uploads through the API, so
+  a branch is the simplest place that needs no extra service.
+- **Never lost**: Send writes the report (and its PNG) to `Application Support/Feedback/pending`
+  before any network call. The queue retries on launch, on returning to the foreground, when the
+  network comes back, after saving a token, after Background App Refresh, and with Retry now in
+  settings. Failures back off 30 s, 1 min, 2 min, … up to 1 h; a network error stops the rest
+  of the pass. An uploaded screenshot is remembered, so retries never upload it twice. Reports
+  leave the queue only once GitHub has created the issue (the last 20 are listed as sent).
+- **Share fallback**: the sheet, the "saved" confirmation and every waiting report have a Share
+  button with the formatted text and the screenshot, for when GitHub isn't an option.
+
+### One-time token setup
+
+The app talks to GitHub with a fine-grained personal access token that only you create:
+
+1. GitHub → **Settings** → **Developer settings** → **Personal access tokens** →
+   **Fine-grained tokens** → **Generate new token**
+   (or <https://github.com/settings/personal-access-tokens/new>).
+2. **Resource owner**: `yesh0907`. **Expiration**: e.g. 1 year.
+3. **Repository access**: *Only select repositories* → `yesh0907/PATH-stat` only.
+4. **Repository permissions**: **Contents: Read and write**, **Issues: Read and write**.
+   **Metadata: Read-only** is added automatically. No other permissions.
+5. Generate and copy the token. In the app, tap the gear next to **Send feedback**, paste it,
+   tap **Save**, then **Test connection**.
+
+Contents write is needed for the screenshot branch, but it can write to any branch, including
+`main`. Add a branch ruleset on GitHub (Settings → Rules → Rulesets) that protects `main`
+(require pull requests, block force pushes and deletions) so a leaked token can't change it.
+
+The token is stored only in this device's Keychain (`com.yesh0907.PATHStat.feedback`,
+this-device-only, never synced), shown only as `github_pat_…` plus its last four characters,
+never logged, and never committed to this repository. Remove it from the same screen.
+
 ## Data sources
 
 Both endpoints are public, unauthenticated JSON published by the Port Authority (PANYNJ).
@@ -237,6 +303,8 @@ Phase 2 adds `Trip` (+ presets, deep links), `StationCatalog.destinationOptions(
 `PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, `TripStore`, and `BoardModel` (the
 main screen's `@Observable` state: trip selection, location default, single-flight refresh).
 Phase 4 adds `TrainActivityState`, `TrainActivityPlanner` and `SnapshotCache.loadOrFetch`.
+In-app feedback adds `Feedback/`: `FeedbackReport`, `FeedbackContext`, `RecentNotices`,
+`FeedbackIssueFormatter`, `GitHubClient` (`FeedbackIssueService`) and the durable `FeedbackQueue`.
 Phase 3 adds `WidgetTimeline`, `WidgetTripResolver`, `SnapshotCache`, `ReloadThrottle`,
 `TripStore.shared` and `PATHSnapshot.sampleTrains(now:)` / `sampleNoTrains(now:)`.
 
@@ -253,7 +321,7 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat -destination 'platf
 ```
 
 UI-test scenarios: launch with `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>`
-and optionally `-UITestLocation <lat>,<lon>` (see AGENTS.md). Coverage includes the
+and optionally `-UITestLocation <lat>,<lon>` and `-UITestFeedback <sent|offline|noToken>` (see AGENTS.md). Coverage includes the
 offline-with-data banner and switching trips from a favorite.
 
 Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.

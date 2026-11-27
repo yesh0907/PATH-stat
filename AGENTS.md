@@ -41,7 +41,8 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 
 The app has deterministic modes for UI tests, previews and screenshots (`PATHStat/Scenario.swift`):
 `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>` and optional
-`-UITestLocation <lat>,<lon>` (alone it implies `trains`). Scenario mode uses a stub feed, a
+`-UITestLocation <lat>,<lon>` (alone it implies `trains`) and `-UITestFeedback <sent|offline|noToken>`
+(see "Feedback pipeline"). Scenario mode uses a stub feed, a
 throwaway `TripStore` suite and fixed location state; it never creates `CLLocationManager`.
 `offlineWithData` starts from a 3-minute-old `initialSnapshot` and every fetch fails, so the
 `offline-banner` appears after the first refresh. UI coverage also includes switching trips from
@@ -108,6 +109,68 @@ For manual or visual checks — widgets on the Home/Lock Screen, Live Activity a
 - Get a booted simulator with your fresh build installed (`xcrun simctl install`; use `-UITestScenario …` for deterministic screens). In Up.computer, `device_open` boots one and returns the pinned `agent-device` command.
 - Drive it: open the app, act on elements by ref/accessibility id, and verify with assertions (`wait text`, `is`) — a screenshot alone isn't verification. Keep screenshots as evidence in the PR or task output.
 - Usage guide: the agent-device skill — https://github.com/callstack/agent-device/blob/main/skills/agent-device/SKILL.md (iOS-specific: https://github.com/callstack/agent-device/blob/main/skills/ios-simulator/SKILL.md).
+
+## Feedback pipeline
+
+In-app feedback (shake or **Send feedback**) becomes GitHub issues on `yesh0907/PATH-stat`.
+Logic is in `Packages/PATHKit/Sources/PATHKit/Feedback/` (`FeedbackIssueFormatter`,
+`GitHubClient`, `FeedbackQueue`, tested in `FeedbackFormatterTests`, `GitHubClientTests`,
+`FeedbackQueueTests` with `StubURLProtocol.registerHost`); app glue is in `PATHStat/Feedback/`
+(`FeedbackCenter`, `FeedbackSheet`, `FeedbackSettingsView`, `KeychainTokenStore`). Tests and
+manual checks never call the real GitHub API and never use a real token.
+
+- **Labels are a contract** with the daily 6:13 AM ET Devin triage automation: every issue the
+  app creates has exactly `feedback` plus one of `bug`, `design-nit`, `frustration`, `idea`
+  (colours in `GitHubClient.labelColors`). Lifecycle labels `devin-working`, `devin-shipped`
+  and `needs-yesh` are set only by the automation, never by the app; don't add them to app code.
+- **Title**: first non-empty note line, whitespace collapsed, ≤ 80 chars cut at a word with
+  "…"; else `<Category> on <screen>`.
+- **Body** (exact order, see `FeedbackIssueFormatter.body`): the full note or `_No note._`;
+  blank line; `![Screenshot](<url>)` or `_No screenshot._`; blank line; `<details>` /
+  `<summary>Context</summary>` with a `| Field | Value |` table (Category, App version, Git
+  commit, iOS, Device, Screen, Trip, Station, Location permission, Feed updated, Feed age, Feed
+  freshness, Last feed error, Recent notices, Live Activity, Appearance, Dynamic Type, Reported
+  at (ISO 8601 UTC), Report ID); a ```` ```json ```` block with `FeedbackContext` (sorted keys,
+  ISO 8601 dates); `</details>`; then `<!-- pathstat-feedback-id: <UUID> -->`. Parse the JSON
+  block rather than the table. Context never contains coordinates or distances: location is
+  only `locationPermission` and the station header word in `stationContext`. Changing the
+  format breaks the automation; update `FeedbackFormatterTests` and this section together.
+- **Screenshots** live on the orphan branch `feedback-assets` (README only, never merge it) at
+  `screenshots/<yyyy-MM-dd UTC>/<report UUID>.png`, linked as
+  `https://github.com/yesh0907/PATH-stat/blob/feedback-assets/<path>?raw=true`. Read them with
+  `gh api repos/yesh0907/PATH-stat/contents/<path>?ref=feedback-assets` or by fetching that
+  branch; they're visible to anyone who can read the repo.
+- **Delivery**: `FeedbackQueue` (`Application Support/Feedback/pending/<id>.png` then
+  `<id>.json`) keeps reports until the issue exists; backoff 30 s doubling to 1 h; retries on
+  launch, foreground, network recovery, token save, `BackgroundRefresh.perform`, Retry now.
+  The token is in the Keychain only (`com.yesh0907.PATHStat.feedback` / `github-token`); logs
+  (category `feedback`) carry report IDs and outcomes only, never the token or note.
+- **Reproducing a report**: read its context JSON, then launch with the matching scenario
+  (`-UITestScenario …`, `-UITestLocation …` near the reported station), open the trip with
+  `pathstat://trip?from=<FROM>&to=<TO>`, and set Appearance / Dynamic Type with `simctl ui`.
+  `-UITestFeedback <sent|offline|noToken>` (default `sent`; alone it implies `trains`) runs
+  feedback against an in-memory token and a stub service: `sent` returns issue #42, `offline`
+  throws a network error, `noToken` has no token. Scenario mode adds a near-invisible 44×44
+  `debug-simulate-shake` button ("Simulate shake", leading edge, own window above sheets) that
+  posts the same `.pathStatDeviceDidShake` notification as a real shake.
+- **Identifiers**: `send-feedback-button`, `feedback-settings-button`, `feedback-pending`,
+  `feedback-sheet`, `feedback-screenshot`, `feedback-markup`, `feedback-remove-screenshot`
+  (also "Add screenshot back"), `feedback-note`, `feedback-category-<bug|design-nit|frustration|idea>`,
+  `feedback-cancel`, `feedback-send`, `feedback-share`, `feedback-sending`, `feedback-sent`,
+  `feedback-issue-link`, `feedback-queued`, `feedback-queued-reason`, `feedback-done`;
+  settings: `feedback-settings`, `feedback-token-field`, `feedback-token-save`,
+  `feedback-token-test`, `feedback-token-test-result`, `feedback-token-remove`, `feedback-retry`.
+
+```sh
+xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:PATHStatUITests/FeedbackUITests                # feedback sheet, shake, queue
+```
+
+The app's "Embed Git Commit" build phase (last phase, always runs, app target has
+`ENABLE_USER_SCRIPT_SANDBOXING = NO`) writes `PATHStatGitCommit` (`git rev-parse --short=12`,
+`-dirty`, or `unknown`) into the built Info.plist; check with
+`plutil -p DD/Build/Products/Debug-iphonesimulator/PATHStat.app/Info.plist`.
 
 ## CI & Devin Cloud
 
