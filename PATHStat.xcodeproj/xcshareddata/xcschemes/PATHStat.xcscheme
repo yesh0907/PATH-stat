@@ -40,6 +40,16 @@
                ReferencedContainer = "container:Packages/PATHKit">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A10000000000000000001002"
+               BuildableName = "PATHStatUITests.xctest"
+               BlueprintName = "PATHStatUITests"
+               ReferencedContainer = "container:PATHStat.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

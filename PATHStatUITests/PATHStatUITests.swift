@@ -1,0 +1,166 @@
+import XCTest
+
+/// Drives the app in its deterministic `-UITestScenario` modes (stub feed, fixed location,
+/// throwaway favourites) and attaches a screenshot per test.
+final class PATHStatUITests: XCTestCase {
+    private let timeout: TimeInterval = 10
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    // MARK: Scenarios
+
+    @MainActor
+    func testLoading() {
+        let app = launch(scenario: "loading")
+        XCTAssertTrue(element(app, "state-loading").waitForExistence(timeout: timeout))
+        XCTAssertFalse(element(app, "next-train").exists)
+        attachScreenshot(app, "loading")
+    }
+
+    @MainActor
+    func testTrains() {
+        let app = launch(scenario: "trains")
+        let next = element(app, "next-train")
+        XCTAssertTrue(next.waitForExistence(timeout: timeout))
+        XCTAssertTrue(next.label.hasPrefix("Next train to 33rd Street"), next.label)
+        XCTAssertTrue(next.label.contains(" line, arriving "), next.label)
+        XCTAssertTrue(element(app, "following-train").exists)
+        XCTAssertTrue(element(app, "later-train-0").exists)
+        XCTAssertTrue(element(app, "later-train-1").exists)
+        XCTAssertTrue(element(app, "freshness-footer").label.hasPrefix("Updated"))
+        XCTAssertTrue(element(app, "station-header").label.contains("Grove Street"))
+        XCTAssertTrue(element(app, "destination-33S").isSelected)
+        XCTAssertFalse(element(app, "destination-WTC").isSelected)
+        XCTAssertTrue(element(app, "favorite-toggle").exists)
+        XCTAssertTrue(element(app, "favorite-GRV-33S").exists)
+        let liveActivity = element(app, "live-activity-button")
+        XCTAssertTrue(liveActivity.exists)
+        XCTAssertFalse(liveActivity.isEnabled)
+        attachScreenshot(app, "trains")
+    }
+
+    @MainActor
+    func testNoTrains() {
+        let app = launch(scenario: "noTrains")
+        let empty = element(app, "state-no-trains")
+        XCTAssertTrue(empty.waitForExistence(timeout: timeout))
+        XCTAssertTrue(empty.label.contains("No trains to 33rd St right now"), empty.label)
+        XCTAssertTrue(element(app, "freshness-footer").label.hasPrefix("Updated"))
+        XCTAssertFalse(element(app, "next-train").exists)
+        attachScreenshot(app, "no-trains")
+    }
+
+    @MainActor
+    func testOffline() {
+        let app = launch(scenario: "offline")
+        XCTAssertTrue(element(app, "state-offline").waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.staticTexts["Can't reach PATH"].exists)
+        XCTAssertTrue(element(app, "retry-button").exists)
+        attachScreenshot(app, "offline")
+    }
+
+    @MainActor
+    func testLocationDenied() {
+        let app = launch(scenario: "locationDenied")
+        let banner = element(app, "location-denied-banner")
+        XCTAssertTrue(banner.waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.staticTexts["Location is off — showing Grove St"].exists)
+        XCTAssertTrue(element(app, "choose-station-button").exists)
+        XCTAssertTrue(element(app, "open-settings-button").exists)
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.label.contains("Grove Street"), header.label)
+        XCTAssertTrue(header.label.contains("home station"), header.label)
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        attachScreenshot(app, "location-denied")
+    }
+
+    // MARK: Smart default by location
+
+    @MainActor
+    func testNearGroveStreetDefaultsToThirtyThird() {
+        let app = launch(scenario: "trains", location: "40.7190,-74.0430")
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        XCTAssertTrue(header.label.contains("Grove Street"), header.label)
+        XCTAssertTrue(header.label.contains("nearest"), header.label)
+        let chip = element(app, "destination-33S")
+        XCTAssertEqual(chip.label, "Destination 33rd St")
+        XCTAssertTrue(chip.isSelected)
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        attachScreenshot(app, "near-grove-street")
+    }
+
+    @MainActor
+    func testNearTwentyThirdDefaultsToGoingHome() {
+        let app = launch(scenario: "trains", location: "40.7432,-73.9925")
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        XCTAssertTrue(header.label.contains("23rd Street"), header.label)
+        let chip = element(app, "destination-GRV")
+        XCTAssertTrue(chip.exists)
+        XCTAssertEqual(chip.label, "Destination Grove St")
+        XCTAssertTrue(chip.isSelected)
+        XCTAssertEqual(element(app, "trip-title").label, "Going home")
+        let next = element(app, "next-train")
+        XCTAssertTrue(next.waitForExistence(timeout: timeout))
+        XCTAssertTrue(next.label.hasPrefix("Next train to Journal Square"), next.label)
+        attachScreenshot(app, "near-23rd-street")
+    }
+
+    @MainActor
+    func testNearHobokenUsesHoboken() {
+        let app = launch(scenario: "trains", location: "40.7370,-74.0300")
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        XCTAssertTrue(header.label.contains("Hoboken"), header.label)
+        XCTAssertTrue(element(app, "destination-WTC").isSelected)
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        attachScreenshot(app, "near-hoboken")
+    }
+
+    // MARK: Interaction
+
+    @MainActor
+    func testStationPickerChangesOrigin() {
+        let app = launch(scenario: "trains")
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        header.tap()
+        let hoboken = element(app, "station-HOB")
+        XCTAssertTrue(hoboken.waitForExistence(timeout: timeout))
+        attachScreenshot(app, "station-picker")
+        hoboken.tap()
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        let predicate = NSPredicate(format: "label CONTAINS 'Hoboken'")
+        expectation(for: predicate, evaluatedWith: header)
+        waitForExpectations(timeout: timeout)
+        // 33rd St is still reachable from Hoboken (Hoboken–33rd St), so the destination is kept.
+        XCTAssertTrue(element(app, "destination-33S").isSelected)
+    }
+
+    // MARK: Helpers
+
+    @MainActor
+    private func launch(scenario: String, location: String? = nil) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestScenario", scenario]
+        if let location { app.launchArguments += ["-UITestLocation", location] }
+        app.launch()
+        return app
+    }
+
+    @MainActor
+    private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any)[identifier].firstMatch
+    }
+
+    @MainActor
+    private func attachScreenshot(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
