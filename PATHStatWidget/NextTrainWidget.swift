@@ -43,21 +43,13 @@ struct NextTrainProvider: AppIntentTimelineProvider {
     /// The cached snapshot if it is under a minute old, else a fresh fetch (cached on success).
     /// On failure: the cached snapshot (possibly nil) with `fetchFailed`.
     private static func loadSnapshot() async -> (PATHSnapshot?, Bool) {
-        let cache = SnapshotCache.shared
-        let cached = cache.load()
-        if let cached {
-            let age = Date.now.timeIntervalSince(cached.fetchedAt)
-            if age >= 0, age < cacheFreshness { return (cached, false) }
+        let result = await SnapshotCache.shared.loadOrFetch(maxAge: cacheFreshness) {
+            try await PATHClient().fetchSnapshot()
         }
-        do {
-            let snapshot = try await PATHClient().fetchSnapshot()
-            cache.save(snapshot)
-            return (snapshot, false)
-        } catch {
-            let pathError = PATHError.from(error)
+        if let pathError = result.error {
             logger.error("Widget feed fetch failed: \(String(describing: pathError), privacy: .public)")
-            return (cached, true)
         }
+        return (result.snapshot, result.error != nil)
     }
 }
 
@@ -97,6 +89,7 @@ struct NextTrainWidget: Widget {
 struct PATHStatWidgetBundle: WidgetBundle {
     var body: some Widget {
         NextTrainWidget()
+        TrainLiveActivity()
     }
 }
 
