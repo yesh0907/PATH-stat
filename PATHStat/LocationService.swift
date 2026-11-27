@@ -2,6 +2,7 @@ import CoreLocation
 import Foundation
 import Observation
 import os
+import PATHKit
 
 /// When-in-use location for picking the nearest station. Never runs in the background.
 ///
@@ -10,12 +11,7 @@ import os
 @MainActor
 @Observable
 final class LocationService {
-    enum Authorization: Equatable, Sendable {
-        case notDetermined
-        case authorized
-        /// Denied, restricted, or Location Services turned off.
-        case denied
-    }
+    typealias Authorization = LocationAuthorization
 
     private(set) var authorization: Authorization
     private(set) var location: CLLocation?
@@ -41,7 +37,8 @@ final class LocationService {
         LocationService(authorization: authorization, location: location)
     }
 
-    /// Creates the manager, asks for when-in-use permission if needed, and requests a fix.
+    /// Creates the manager (once). CoreLocation then calls `locationManagerDidChangeAuthorization`,
+    /// which asks for when-in-use permission if needed and requests a fix.
     func start() {
         guard isLive else { return }
         if manager == nil {
@@ -52,7 +49,6 @@ final class LocationService {
             self.manager = manager
             self.delegate = delegate
         }
-        handleAuthorizationChange()
     }
 
     /// Requests a fresh one-shot fix (e.g. on returning to the foreground).
@@ -72,8 +68,10 @@ final class LocationService {
             manager.requestLocation()
         case .denied, .restricted:
             authorization = .denied
+            location = nil
         @unknown default:
             authorization = .denied
+            location = nil
         }
     }
 

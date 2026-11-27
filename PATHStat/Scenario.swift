@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import os
 import PATHKit
 
 /// Deterministic app states for UI tests, screenshots and previews.
@@ -14,7 +13,8 @@ enum Scenario: String, CaseIterable, Sendable {
     case noTrains
     case offline
     case locationDenied
-    /// One good fetch, then every later fetch fails (shows the "Offline — showing data" banner).
+    /// Starts with a 3-minute-old snapshot and every fetch fails, so the "Can't update —
+    /// showing data from … ago" banner appears after the first refresh.
     case offlineWithData
 
     static let scenarioArgument = "-UITestScenario"
@@ -59,7 +59,13 @@ enum Scenario: String, CaseIterable, Sendable {
                 location: override ?? StationCatalog.station(.groveStreet).location
             )
         }
-        return AppEnvironment(model: BoardModel(store: store, fetch: fetch), location: location)
+        let initialSnapshot = self == .offlineWithData
+            ? Scenario.trainsSnapshot(now: .now.addingTimeInterval(-180))
+            : nil
+        return AppEnvironment(
+            model: BoardModel(store: store, initialSnapshot: initialSnapshot, fetch: fetch),
+            location: location
+        )
     }
 
     var fetch: BoardModel.Fetch {
@@ -74,14 +80,8 @@ enum Scenario: String, CaseIterable, Sendable {
             return { Scenario.trainsSnapshot(now: .now) }
         case .noTrains:
             return { Scenario.noTrainsSnapshot(now: .now) }
-        case .offline:
+        case .offline, .offlineWithData:
             return { throw URLError(.notConnectedToInternet) }
-        case .offlineWithData:
-            let calls = CallCounter()
-            return {
-                guard calls.next() == 0 else { throw URLError(.notConnectedToInternet) }
-                return Scenario.trainsSnapshot(now: .now.addingTimeInterval(-180))
-            }
         }
     }
 
@@ -150,18 +150,6 @@ enum Scenario: String, CaseIterable, Sendable {
     private static func headsign(line: PATHLine, terminus: StationCode) -> String {
         let name = StationCatalog.station(terminus).name
         return line == .journalSquare33rdViaHoboken ? "\(name) via Hoboken" : name
-    }
-}
-
-/// Thread-safe call counter for stub fetches.
-private final class CallCounter: Sendable {
-    private let count = OSAllocatedUnfairLock(initialState: 0)
-
-    func next() -> Int {
-        count.withLock { value in
-            defer { value += 1 }
-            return value
-        }
     }
 }
 

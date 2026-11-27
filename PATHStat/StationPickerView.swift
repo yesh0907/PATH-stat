@@ -19,7 +19,10 @@ struct StationPickerView: View {
 
     private var rows: [Row] {
         let ordered: [Row] = if let location {
-            StationCatalog.stations(nearest: location).map { Row(station: $0.station, distance: $0.distance) }
+            StationCatalog.stations(nearest: location).map {
+                // Closer than `Format.nearbyThreshold`, no distance is shown.
+                Row(station: $0.station, distance: $0.distance >= Format.nearbyThreshold ? $0.distance : nil)
+            }
         } else {
             StationCatalog.all.map { Row(station: $0, distance: nil) }
         }
@@ -58,6 +61,7 @@ struct StationPickerView: View {
                     }
                     .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label(for: row))
                 .accessibilityAddTraits(row.station.code == current ? [.isButton, .isSelected] : .isButton)

@@ -76,6 +76,16 @@ final class PATHStatUITests: XCTestCase {
         attachScreenshot(app, "location-denied")
     }
 
+    @MainActor
+    func testOfflineWithDataShowsBanner() {
+        let app = launch(scenario: "offlineWithData")
+        let banner = element(app, "offline-banner")
+        XCTAssertTrue(banner.waitForExistence(timeout: timeout))
+        XCTAssertTrue(banner.label.hasPrefix("Can't update — showing data from"), banner.label)
+        XCTAssertTrue(element(app, "next-train").exists)
+        attachScreenshot(app, "offline-with-data")
+    }
+
     // MARK: Smart default by location
 
     @MainActor
@@ -140,7 +150,52 @@ final class PATHStatUITests: XCTestCase {
         XCTAssertTrue(element(app, "destination-33S").isSelected)
     }
 
+    @MainActor
+    func testFavoriteSwitchesTrip() {
+        let app = launch(scenario: "trains", location: "40.7190,-74.0430")
+        let header = element(app, "station-header")
+        XCTAssertTrue(header.waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "destination-33S").isSelected)
+
+        let favorite = element(app, "favorite-GRV-WTC")
+        XCTAssertTrue(favorite.waitForExistence(timeout: timeout))
+        scroll(app, until: favorite, direction: .up)
+        favorite.tap()
+        wait(for: element(app, "destination-WTC"), "isSelected == true")
+        XCTAssertFalse(element(app, "destination-33S").isSelected)
+        XCTAssertTrue(favorite.isSelected)
+        attachScreenshot(app, "favorite-switch")
+
+        scroll(app, until: header, direction: .down)
+        header.tap()
+        let hoboken = element(app, "station-HOB")
+        XCTAssertTrue(hoboken.waitForExistence(timeout: timeout))
+        scroll(app, until: hoboken, direction: .up)
+        hoboken.tap()
+        wait(for: header, "label CONTAINS 'Hoboken'")
+    }
+
     // MARK: Helpers
+
+    private enum ScrollDirection { case up, down }
+
+    /// Swipes (at most a few times) until `target` is hittable.
+    @MainActor
+    private func scroll(_ app: XCUIApplication, until target: XCUIElement, direction: ScrollDirection) {
+        for _ in 0..<6 where !target.isHittable {
+            switch direction {
+            case .up: app.swipeUp()
+            case .down: app.swipeDown()
+            }
+        }
+        XCTAssertTrue(target.isHittable, "\(target) is not hittable")
+    }
+
+    @MainActor
+    private func wait(for target: XCUIElement, _ format: String) {
+        expectation(for: NSPredicate(format: format), evaluatedWith: target)
+        waitForExpectations(timeout: timeout)
+    }
 
     @MainActor
     private func launch(scenario: String, location: String? = nil) -> XCUIApplication {

@@ -1,7 +1,8 @@
 # AGENTS.md
 
 Native iOS SwiftUI app for PATH train arrivals. All data logic lives in the local
-package `Packages/PATHKit`; the app target `PATHStat` is a thin UI over it.
+package `Packages/PATHKit` (including the screen's `@MainActor @Observable BoardModel`, tested in
+`BoardModelTests`); the app target `PATHStat` is a thin UI over it.
 
 ## Verified commands
 
@@ -33,8 +34,12 @@ The app has deterministic modes for UI tests, previews and screenshots (`PATHSta
 `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>` and optional
 `-UITestLocation <lat>,<lon>` (alone it implies `trains`). Scenario mode uses a stub feed, a
 throwaway `TripStore` suite and fixed location state; it never creates `CLLocationManager`.
+`offlineWithData` starts from a 3-minute-old `initialSnapshot` and every fetch fails, so the
+`offline-banner` appears after the first refresh. UI coverage also includes switching trips from
+a favorite.
 UI tests find elements by accessibility identifier (`station-header`, `destination-<CODE>`,
-`next-train`, `state-loading`, ...); keep identifiers stable when editing views.
+`favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `offline-banner`, `state-loading`, ...);
+keep identifiers stable when editing views.
 
 ```sh
 # Export UI-test screenshots (each test attaches one, named after the test)

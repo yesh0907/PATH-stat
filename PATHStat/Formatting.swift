@@ -4,6 +4,9 @@ import PATHKit
 
 /// Display strings shared by the main screen and its accessibility labels.
 enum Format {
+    /// Closer than this, a distance ("0 ft") is noise and isn't shown.
+    static let nearbyThreshold: CLLocationDistance = 50
+
     /// "4:07", or "Due" when the train is at (or past) the platform.
     static func countdown(_ seconds: TimeInterval) -> String {
         let total = Int(seconds.rounded(.down))

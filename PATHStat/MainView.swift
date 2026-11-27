@@ -49,7 +49,8 @@ struct MainView: View {
         .background(Color(.systemGroupedBackground))
         .refreshable { await model.refresh() }
         // Refresh now, then every 20 s; restarts when the trip changes or the app returns to
-        // the foreground, and stops (cancelling any in-flight fetch) when inactive or hidden.
+        // the foreground, and stops scheduling refreshes when inactive or hidden. A fetch
+        // already in flight finishes so every caller gets its result.
         .task(id: RefreshKey(active: scenePhase == .active, tripID: model.trip.id)) {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
@@ -87,8 +88,7 @@ struct MainView: View {
         if let here = location.location,
            let nearest = StationCatalog.stations(nearest: here).first,
            nearest.station.code == origin.code {
-            // Within ~50 m a distance ("0 ft") is noise.
-            guard nearest.distance >= 50 else { return ("Nearest station", "nearest") }
+            guard nearest.distance >= Format.nearbyThreshold else { return ("Nearest station", "nearest") }
             return (
                 "Nearest station · \(Format.distance(nearest.distance))",
                 "nearest, \(Format.distance(nearest.distance, wide: true))"
@@ -266,7 +266,7 @@ private struct OfflineBanner: View {
     let age: TimeInterval
 
     var body: some View {
-        Label("Offline — showing data from \(Format.age(age)) ago", systemImage: "wifi.slash")
+        Label("Can't update — showing data from \(Format.age(age)) ago", systemImage: "wifi.slash")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
@@ -322,6 +322,9 @@ private struct DestinationChips: View {
             // Keep the selected chip visible (e.g. "to Grove St" after the termini).
             .onAppear { proxy.scrollTo(selected, anchor: .center) }
             .onChange(of: chips) { _, _ in
+                withAnimation { proxy.scrollTo(selected, anchor: .center) }
+            }
+            .onChange(of: selected) { _, selected in
                 withAnimation { proxy.scrollTo(selected, anchor: .center) }
             }
         }

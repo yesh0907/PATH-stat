@@ -18,8 +18,8 @@ the main app screen.
   `PATHSnapshot.departures(at:toward:)`, which merges both feed directions and keeps trains
   that stop at the destination.
 - **States**: loading, no trains (service may be suspended / late night), can't reach PATH
-  (Retry), offline with old data (orange banner), plus an "Updated 12 s ago" footer and a
-  stale warning.
+  (Retry), offline with old data (orange "Can't update — showing data from 3 min ago" banner),
+  plus an "Updated 12 s ago" footer and a stale warning.
 - **Favorites**: Grove St → 33rd St, Grove St → WTC and Going home (23rd St → Grove St) to
   start with. The star toggles the current trip; long-press a favorite to remove it.
 - **Location**: when-in-use only, one-shot `requestLocation()` at 100 m accuracy, no
@@ -30,8 +30,9 @@ the main app screen.
 
 ### Smart default trip (`TripPlanner.defaultTrip`)
 
-The app opens on `defaultTrip(location: nil, lastTrip:)`. When the first location fix arrives
-(or location is denied), it switches once, but only if you haven't picked anything yet this session:
+The app opens on `defaultTrip(location: nil, lastTrip:)`. Each fresh location fix (one-shot, at
+launch and on returning to the foreground) and each authorization change re-applies the default,
+until you pick something yourself this session:
 
 1. Nearest station is Grove St and within 1 km → **Grove St → 33rd St**.
 2. Nearest station is 23rd St and within 1 km → **Going home** (23rd St → Grove St).
@@ -50,7 +51,7 @@ stays if it's still reachable on one line (`TripPlanner.defaultDestination(from:
 - **Phase 4 (Live Activities)**: a disabled "Start Live Activity" button ("Coming soon").
 
 Screenshots: `docs/screenshots/phase2/` (live feed with simulated location: light, dark, and
-XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI-test scenario).
+XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI test).
 
 ## Data sources
 
@@ -123,7 +124,8 @@ Main `PATHKit` API: `PATHClient` (fetch and parse), `PATHSnapshot.departures(at:
 → `DepartureBoard` (sorted trains, `next`/`following`, `freshness`), `StationCatalog` (stations,
 nearest station, lines and direction between stations), `ServiceAlert`, `PATHError`.
 Phase 2 adds `Trip` (+ presets, deep links), `StationCatalog.destinationOptions(from:)`,
-`PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, and `TripStore`.
+`PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, `TripStore`, and `BoardModel` (the
+main screen's `@Observable` state: trip selection, location default, single-flight refresh).
 
 ## Build, test, run
 
@@ -138,7 +140,8 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat -destination 'platf
 ```
 
 UI-test scenarios: launch with `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>`
-and optionally `-UITestLocation <lat>,<lon>` (see AGENTS.md).
+and optionally `-UITestLocation <lat>,<lon>` (see AGENTS.md). Coverage includes the
+offline-with-data banner and switching trips from a favorite.
 
 Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.
 

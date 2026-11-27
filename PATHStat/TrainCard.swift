@@ -96,7 +96,10 @@ struct LaterTrainRow: View {
     private var laterLabel: String {
         let minutes = train.minutesRemaining(at: now)
         let when = minutes == 0 ? "arriving now" : "in \(minutes) minute\(minutes == 1 ? "" : "s")"
-        return "Later train to \(train.headsign), \(train.lineName) line, \(when)"
+        let destination = train.headsign.isEmpty ? "unknown destination" : train.headsign
+        var label = "Later train to \(destination), \(train.lineName) line, \(when)"
+        if train.isDelayed { label += ", delayed" }
+        return label
     }
 }
 
