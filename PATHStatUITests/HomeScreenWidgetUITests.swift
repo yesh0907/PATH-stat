@@ -28,13 +28,16 @@ final class HomeScreenWidgetUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         sleep(3)
+        dismissWidgetLocationPrompt()
         XCUIDevice.shared.press(.home)
         sleep(1)
-        // An empty page makes the long press land on the wallpaper, not an icon.
-        for _ in 0..<3 { springboard.swipeLeft(); sleep(1) }
-
-        try addWidget(sizeIndex: 0)
+        dismissWidgetLocationPrompt()
+        // No swipes: right goes to Today View and repeated left swipes can end in App Library.
+        // Pressing Home from the app is already a Home Screen page. A long press on an icon
+        // is fine too: its context menu has "Edit Home Screen".
+        // Insert medium first; the small one then lands above it on the simulator's first page.
         try addWidget(sizeIndex: 1)
+        try addWidget(sizeIndex: 0)
         exitEditMode()
 
         // Let the widget fetch the live feed and render.
@@ -54,21 +57,56 @@ final class HomeScreenWidgetUITests: XCTestCase {
         search.tap()
         search.typeText("PATH Stat")
         sleep(2)
-        let result = springboard.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "PATH Stat")).allElementsBoundByIndex
-            .first { $0.isHittable && $0.elementType != .searchField }
+        // A newly installed extension can take a few seconds to appear in the gallery.
+        var result: XCUIElement?
+        for _ in 0..<10 where result == nil {
+            result = springboard.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", "PATH Stat")).allElementsBoundByIndex
+                .first { $0.isHittable && $0.elementType != .searchField }
+            if result == nil { sleep(1) }
+        }
         try require(result != nil, "“PATH Stat” in widget search results")
         result!.tap()
         sleep(2)
 
+        // Swipe inside the size carousel (small → medium), not the underlying Home Screen.
         for _ in 0..<sizeIndex {
-            springboard.swipeLeft()
+            let start = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.60))
+            let end = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.60))
+            start.press(forDuration: 0.1, thenDragTo: end)
             sleep(1)
         }
         let add = springboard.buttons["Add Widget"].firstMatch
-        try require(add.waitForExistence(timeout: 5), "“Add Widget” button")
-        add.tap()
+        if add.waitForExistence(timeout: 5), add.isHittable {
+            add.tap()
+        } else {
+            // The button is visible in the widget-details sheet on iOS 27 but is not always
+            // exposed in Springboard's accessibility hierarchy (remote-element errors). It is
+            // fixed at the bottom center of that sheet, so tap its coordinates as a fallback.
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.89)).tap()
+        }
         sleep(2)
+        // iOS asks once whether this app's widgets may use location (NSWidgetWantsLocation).
+        // The default saved-trip mode doesn't need it, and the prompt blocks further editing.
+        dismissWidgetLocationPrompt()
+    }
+
+    @MainActor
+    private func dismissWidgetLocationPrompt() {
+        for label in ["Don't Allow", "Don’t Allow"] {
+            let button = springboard.buttons[label].firstMatch
+            if button.waitForExistence(timeout: 1), button.isHittable {
+                button.tap()
+                sleep(1)
+                return
+            }
+        }
+        let prompt = springboard.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "use your location")).firstMatch
+        if prompt.exists {
+            // Alert fallback if the buttons aren't exposed through the remote accessibility hierarchy.
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.29, dy: 0.59)).tap()
+            sleep(1)
+        }
     }
 
     @MainActor

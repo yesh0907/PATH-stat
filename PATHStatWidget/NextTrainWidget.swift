@@ -45,8 +45,9 @@ struct NextTrainProvider: AppIntentTimelineProvider {
     private static func loadSnapshot() async -> (PATHSnapshot?, Bool) {
         let cache = SnapshotCache.shared
         let cached = cache.load()
-        if let cached, abs(Date.now.timeIntervalSince(cached.fetchedAt)) < cacheFreshness {
-            return (cached, false)
+        if let cached {
+            let age = Date.now.timeIntervalSince(cached.fetchedAt)
+            if age >= 0, age < cacheFreshness { return (cached, false) }
         }
         do {
             let snapshot = try await PATHClient().fetchSnapshot()
