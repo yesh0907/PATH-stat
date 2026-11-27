@@ -56,6 +56,23 @@ struct ClientTests {
         }
     }
 
+    @Test func urlErrorCancelledBecomesCancellationError() async {
+        await #expect(throws: CancellationError.self) {
+            try await client(feed: .failure(.cancelled)).fetchSnapshot()
+        }
+        await #expect(throws: CancellationError.self) {
+            try await client(feed: .http(status: 200, body: Data()), alerts: .failure(.cancelled)).fetchAlerts()
+        }
+    }
+
+    @Test func cancellingTheTaskThrowsCancellationError() async throws {
+        let client = client(feed: .hang)
+        let task = Task { try await client.fetchSnapshot() }
+        try await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
     @Test func malformedBodyIsInvalidResponse() async {
         await #expect {
             try await client(feed: .http(status: 200, body: Data("<html>".utf8))).fetchSnapshot()

@@ -43,6 +43,8 @@ final class ArrivalsModel {
         do {
             snapshot = try await client.fetchSnapshot()
             errorMessage = nil
+        } catch is CancellationError {
+            // A cancelled refresh (view went away, station changed) is not a feed error.
         } catch {
             // Keep the previous snapshot visible; the stale line will flag its age.
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

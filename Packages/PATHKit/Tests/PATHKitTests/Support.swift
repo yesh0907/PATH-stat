@@ -52,6 +52,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     enum Response: Sendable {
         case http(status: Int, body: Data)
         case failure(URLError.Code)
+        /// Never responds, so the request stays in flight until it is cancelled.
+        case hang
     }
 
     private static let lock = NSLock()
@@ -83,6 +85,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
+        case .hang:
+            break
         case nil:
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
         }
