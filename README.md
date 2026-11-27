@@ -1,5 +1,7 @@
 # PATH-stat
 
+[![CI](https://github.com/yesh0907/PATH-stat/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yesh0907/PATH-stat/actions/workflows/ci.yml)
+
 A native iOS (SwiftUI) app for real-time PATH train arrivals. Phase 1 is the data layer:
 `PATHKit`, a pure Foundation + CoreLocation Swift package, plus a macOS debug CLI. Phase 2 is
 the main app screen.

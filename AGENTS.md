@@ -73,6 +73,28 @@ Verified simulators: "iPhone 17" and "iPhone 18 Pro" (iOS 27.0 runtime).
 If a simulator boot fails with "Unable to locate launchd_sim", run
 `killall -9 com.apple.CoreSimulator.CoreSimulatorService` and retry.
 
+## CI & Devin Cloud
+
+The [CI workflow](https://github.com/yesh0907/PATH-stat/actions/workflows/ci.yml) runs
+PATHKit package tests and unsigned iOS Simulator tests on GitHub-hosted macOS. Devin Cloud
+sessions must get a green CI run for the latest PR commit before merging. CI uses the stubbed
+UI scenarios with `PATH_LIVE` unset. Only local agents can run the live simulator against the
+real PATH feeds.
+
+From the repository root, find the run ID for your commit, read both job results, and download
+the app test artifacts:
+
+```sh
+gh run list --workflow ci.yml --commit "$(git rev-parse HEAD)"
+gh run view <run-id>
+gh run view <run-id> --log-failed
+gh run download <run-id> --name pathstat-test-results --dir /tmp/pathstat-ci
+```
+
+Open `Tests.xcresult` in Xcode or browse `attachments/` for UI-test screenshots. The
+`attachments/manifest.json` file maps the exported files to their human-readable test names.
+CI uploads the bundle and attachments on success and failure when Xcode produces them.
+
 ## Signing (hard rule)
 
 - Every PATH-stat target (app, widget, Live Activity extensions) uses automatic signing with
