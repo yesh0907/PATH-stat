@@ -49,7 +49,8 @@ stays if it's still reachable on one line (`TripPlanner.defaultDestination(from:
 
 - **Phase 3 (widget)**: done (see below); the widget opens trips through the
   `Trip.url` / `Trip(url:)` deep links (`pathstat://trip?from=GRV&to=33S`).
-- **Phase 4 (Live Activities)**: a disabled "Start Live Activity" button ("Coming soon").
+- **Phase 4 (Live Activities)**: done (see below); the main screen's Live Activity section
+  replaced the old placeholder, keeping the `live-activity-button` identifier.
 
 Screenshots: `docs/screenshots/phase2/` (live feed with simulated location: light, dark, and
 XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI test).
@@ -87,6 +88,78 @@ On the Home Screen: `docs/screenshots/phase3/home-screen-widgets.png`, captured 
   just fetches for itself and offers the preset trips.
 - **Screenshots without a widget host**: launch the app with `-WidgetGallery <state>` (see
   AGENTS.md); `WidgetGalleryUITests` captures one per state.
+
+## Phase 4: Live Activity
+
+| Live | Rolled over | Stale | Offline | Ended |
+|---|---|---|---|---|
+| ![](docs/screenshots/phase4/live-activity-gallery-live.png) | ![](docs/screenshots/phase4/live-activity-gallery-rolledOver.png) | ![](docs/screenshots/phase4/live-activity-gallery-stale.png) | ![](docs/screenshots/phase4/live-activity-gallery-offline.png) | ![](docs/screenshots/phase4/live-activity-gallery-ended.png) |
+
+Live captures: [Lock Screen](docs/screenshots/phase4/lock-screen.png),
+[Lock Screen after roll-over](docs/screenshots/phase4/lock-screen-rollover.png),
+[ended](docs/screenshots/phase4/lock-screen-ended.png),
+[Dynamic Island compact](docs/screenshots/phase4/dynamic-island-compact.png),
+[expanded](docs/screenshots/phase4/dynamic-island-expanded.png),
+[compact after roll-over](docs/screenshots/phase4/dynamic-island-rollover-compact.png),
+[app while live](docs/screenshots/phase4/main-live-activity.png), and
+[app after auto-end](docs/screenshots/phase4/main-after-auto-end.png).
+
+- **Shows** (Lock Screen / banner): the trip, the next train's headsign with line colour bars,
+  a large live m:ss countdown and its arrival time, "Then …" for the following train,
+  "Updated … ago" (orange with a warning icon when the data may be out of date), "Until 9:41"
+  (when it ends) and a small Refresh button. Offline: "Can't update · showing data from … ago";
+  no trains: "No trains predicted"; ended: "Live Activity ended · open PATH Stat to restart".
+  **Dynamic Island**: compact = line colour + destination and the countdown; minimal = the
+  countdown (a tram when there is none); expanded = headsign, big countdown, following train,
+  freshness and Refresh. Tapping opens the app on the trip (`pathstat://trip?...`).
+- **Start it** from the main screen ("Start Live Activity", or "Switch to this trip" when another
+  trip is live; "Stop Live Activity" ends it), from a favourite's long-press menu, or with
+  Shortcuts / Siri / Spotlight / the Action Button: "PATH Stat home to 33rd" / "Start PATH Stat
+  Grove Street to 33rd" (Grove St → 33rd St), "Track my PATH Stat train" / "Start PATH Stat
+  Live Activity" (asks for a trip), "Stop PATH Stat Live Activity". One activity at a time:
+  starting another replaces it. If Live Activities are off, the app explains and links to Settings.
+- **Freshness model** (no push on the free Personal Team):
+  - While the app is in the foreground, each 20 s refresh updates the activity (unchanged
+    content is skipped).
+  - In the background, a **best-effort** `BGAppRefreshTask` (`com.yesh0907.PATHStat.refresh`)
+    is requested for the content's stale date after starting and when the app backgrounds; it
+    fetches, saves the widget cache, reloads widgets and updates the activity. iOS decides if
+    and when it runs; it may not run at all.
+  - Without any app code, each update's `staleDate` is the first train's departure (or
+    10 min after the fetch, if sooner): the system re-renders then and the views drop the
+    departed train and roll over to the next one, with the stale warning.
+  - The Refresh button runs `RefreshTrainActivityIntent` in the app's process.
+  - Activities end on their own after **60 min** (left on screen for 2 more minutes).
+- **Code**: pure logic in PATHKit (`TrainActivityState`, `TrainActivityPlanner`,
+  `SnapshotCache.loadOrFetch`); ActivityKit only in `PATHStatWidgetUI/TrainActivities.swift`;
+  views in `PATHStatWidgetUI/TrainActivityViews.swift`; the widget extension's
+  `TrainLiveActivity`; the app's `LiveActivityController` and `BackgroundRefresh`.
+- **Screenshots without ActivityKit**: launch with `-LiveActivityGallery <state>` (see
+  AGENTS.md); `LiveActivityGalleryUITests` captures one per state.
+
+### Future: push updates (needs a paid account; not implemented)
+
+Server-pushed updates would make the activity truly live in the background. Documented here
+only; nothing below exists in the code:
+
+- Request the activity with `pushType: .token`, observe `pushTokenUpdates`, and send the token
+  (with the trip) to a small server.
+- The server polls the PATH feed (e.g. every 20–30 s per active trip), runs the same planning as
+  `TrainActivityPlanner`, and sends APNs requests with `apns-push-type: liveactivity`, topic
+  `com.yesh0907.PATHStat.push-type.liveactivity`, and a payload `aps` with `timestamp`,
+  `event: "update"` or `"end"`, `content-state` (the JSON-encoded `TrainActivityState`),
+  `stale-date`, and for `end` a `dismissal-date`.
+- Push-to-start (iOS 17.2+): `Activity.pushToStartTokenUpdates` lets the server start an
+  activity with `event: "start"` plus `attributes-type` / `attributes`.
+- `NSSupportsLiveActivitiesFrequentUpdates` raises the update budget; high-priority
+  (`apns-priority: 10`) pushes count against a system budget, so most updates should be
+  priority 5, with priority 10 reserved for changes riders must see promptly.
+- Requires APNs, which a free Personal Team lacks; never use another team for it.
+
+### Hooks for later phases
+
+- Push updates: see above; `TrainActivities` is the single place to add `pushType: .token`.
+- `TrainActivityState` is `Codable` and stable, ready to be the APNs `content-state`.
 
 ## Data sources
 
@@ -149,8 +222,8 @@ data[]
 PATHStat.xcodeproj/          iOS app project (hand-written, objectVersion 77) + shared PATHStat scheme
 PATHStat/                    SwiftUI app sources (file-system synchronized group)
 PATHStatUITests/             XCUITest UI tests driving the app's -UITestScenario / -WidgetGallery modes
-PATHStatWidget/              WidgetKit extension: AppIntent configuration, timeline provider
-PATHStatWidgetUI/            widget views shared by the app (gallery) and the extension
+PATHStatWidget/              WidgetKit extension: AppIntent configuration, timeline provider, Live Activity
+PATHStatWidgetUI/            widget + Live Activity views, attributes, intents, ActivityKit glue (app + extension)
 Packages/PATHKit/
   Sources/PATHKit/           library: stations, lines, feed/alerts parsing, PATHClient
   Sources/path-live/         macOS debug CLI
@@ -163,6 +236,7 @@ nearest station, lines and direction between stations), `ServiceAlert`, `PATHErr
 Phase 2 adds `Trip` (+ presets, deep links), `StationCatalog.destinationOptions(from:)`,
 `PATHSnapshot.departures(at:toward:now:)`, `TripPlanner`, `TripStore`, and `BoardModel` (the
 main screen's `@Observable` state: trip selection, location default, single-flight refresh).
+Phase 4 adds `TrainActivityState`, `TrainActivityPlanner` and `SnapshotCache.loadOrFetch`.
 Phase 3 adds `WidgetTimeline`, `WidgetTripResolver`, `SnapshotCache`, `ReloadThrottle`,
 `TripStore.shared` and `PATHSnapshot.sampleTrains(now:)` / `sampleNoTrains(now:)`.
 
@@ -189,7 +263,8 @@ Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.
 - Signing is Automatic with `DEVELOPMENT_TEAM = 63L4D2UQLD` (the free Personal Team). A free
   personal team is enough for everything in the current scope.
 - A paid Apple Developer account becomes useful later for APNs: push-to-start Live Activities
-  and server-pushed Live Activity updates.
+  and server-pushed Live Activity updates (see "Future: push updates"). Live Activities
+  themselves (`NSSupportsLiveActivities`) and background app refresh need no capability.
 - The widget extension uses the same team. The App Group `group.com.yesh0907.PATHStat` is
   registered only under that team; the app and widget degrade gracefully without it.
 - No TestFlight/App Store and no APNs push on a free Personal Team (installed builds expire

@@ -32,6 +32,9 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -only-testing:PATHStatUITests/WidgetGalleryUITests          # widget views, all states
+xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:PATHStatUITests/LiveActivityGalleryUITests    # Live Activity views, all states
 ```
 
 ### UI-test scenarios and screenshots
@@ -48,8 +51,22 @@ a favorite.
 snapshots) on one screen, identifier `widget-gallery` (tiles: `widget-systemSmall`, ...).
 `WidgetGalleryUITests` attaches `widget-gallery-<state>`. Scenario and gallery modes never
 write the App Group cache or reload widget timelines (`WidgetSync` is live-only).
+`-LiveActivityGallery <live|rolledOver|stale|offline|ended>` shows the shared Live Activity
+views (`PATHStatWidgetUI/TrainActivityViews.swift`, samples from `TrainActivitySampleState`) on
+one screen, identifier `live-activity-gallery` (`live-activity-lockscreen`,
+`live-activity-compact`, `live-activity-minimal`, `live-activity-expanded`);
+`LiveActivityGalleryUITests` attaches `live-activity-gallery-<state>`. It never touches
+ActivityKit or the caches (its Refresh button is non-interactive).
+Live Activity in scenario mode uses an in-memory `StubLiveActivityBackend`; add
+`-LiveActivityBackend real` to drive real ActivityKit (manual checks only, never in UI tests).
+`-LiveActivityDuration <seconds>` (a `UserDefaults` argument, key `LiveActivityDuration`)
+overrides the 60-minute duration in both backends, e.g. `-LiveActivityDuration 90` to watch it
+end. Background refresh (`BackgroundRefresh`) is live-only: any scenario/gallery argument
+disables it.
 UI tests find elements by accessibility identifier (`station-header`, `destination-<CODE>`,
-`favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `offline-banner`, `state-loading`, ...);
+`favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `offline-banner`, `state-loading`,
+`live-activity-button` (start / "Switch to this trip"), `live-activity-status`,
+`live-activity-stop`, `live-activity-error`, `live-activity-disabled`, `live-activity-settings`, ...);
 keep identifiers stable when editing views.
 
 ```sh
@@ -154,6 +171,12 @@ CI uploads the bundle and attachments on success and failure when Xcode produces
 - Put pure logic (trip planning, filtering, persistence) in PATHKit with tests; keep the app thin.
 - Widget countdowns must stay correct without reloads: `Text(timerInterval:countsDown:)`,
   `Text(date, style: .time/.relative)`, never a precomputed minute count or `.timer` style.
+- ActivityKit calls live only in `PATHStatWidgetUI/TrainActivities.swift`; Live Activity
+  content is planned by PATHKit's `TrainActivityPlanner`. The intents in
+  `PATHStatWidgetUI/TrainActivityIntents.swift` are `LiveActivityIntent`s compiled into both
+  targets, so they always perform in the app's process (including the Lock Screen Refresh
+  button). `PATHStatWidgetUI/TripEntities.swift` holds `TripEntity`/`StationEntity` for both.
+  Live Activity logs use `Logger(subsystem: "com.yesh0907.PATHStat", category: "liveactivity")`.
 - Never log location or coordinates; feed errors go to `Logger(subsystem: "com.yesh0907.PATHStat", category: "feed")`.
 - "toward X" means the train *stops at X after this station* on its identified line, in its
   direction — not that X is the terminus. Only an unidentified line falls back to `target == X`.
