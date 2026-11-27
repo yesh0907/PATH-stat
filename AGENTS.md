@@ -32,6 +32,14 @@ Verified simulators: "iPhone 17" and "iPhone 18 Pro" (iOS 27.0 runtime).
 If a simulator boot fails with "Unable to locate launchd_sim", run
 `killall -9 com.apple.CoreSimulator.CoreSimulatorService` and retry.
 
+## Signing (hard rule)
+
+- Every PATH-stat target (app, widget, Live Activity extensions) uses automatic signing with
+  `DEVELOPMENT_TEAM = 63L4D2UQLD` ("Yesh Chandiramani (Personal Team)", free).
+- Never set any other team, and never register bundle IDs, devices, App Groups, capabilities,
+  certificates or profiles under another team (e.g. an employer team). No TestFlight/App Store.
+- Free personal teams lack some capabilities (e.g. APNs push); design around them.
+
 ## Conventions
 
 - `PATHStat.xcodeproj/project.pbxproj` is hand-written (objectVersion 77). `PATHStat/` is a

@@ -90,8 +90,8 @@ Or open `PATHStat.xcodeproj` in Xcode and run the `PATHStat` scheme.
 
 ## Signing and roadmap notes
 
-- `DEVELOPMENT_TEAM` is empty and signing is Automatic. Pick your team in Xcode to run on a
-  device; a free personal team is enough for everything in the current scope.
+- Signing is Automatic with `DEVELOPMENT_TEAM = 63L4D2UQLD` (the free Personal Team). A free
+  personal team is enough for everything in the current scope.
 - A paid Apple Developer account becomes useful later for APNs: push-to-start Live Activities
   and server-pushed Live Activity updates.
 - App Groups (to share data between the app and a widget) will be evaluated in phase 3. They
