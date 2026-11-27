@@ -92,6 +92,28 @@ For manual or visual checks — widgets on the Home/Lock Screen, Live Activity a
 - Drive it: open the app, act on elements by ref/accessibility id, and verify with assertions (`wait text`, `is`) — a screenshot alone isn't verification. Keep screenshots as evidence in the PR or task output.
 - Usage guide: the agent-device skill — https://github.com/callstack/agent-device/blob/main/skills/agent-device/SKILL.md (iOS-specific: https://github.com/callstack/agent-device/blob/main/skills/ios-simulator/SKILL.md).
 
+## CI & Devin Cloud
+
+The [CI workflow](https://github.com/yesh0907/PATH-stat/actions/workflows/ci.yml) runs
+PATHKit package tests and unsigned iOS Simulator tests on GitHub-hosted macOS. Devin Cloud
+sessions must get a green CI run for the latest PR commit before merging. CI uses the stubbed
+UI scenarios with `PATH_LIVE` unset. Only local agents can run the live simulator against the
+real PATH feeds.
+
+From the repository root, find the run ID for your commit, read both job results, and download
+the app test artifacts:
+
+```sh
+gh run list --workflow ci.yml --commit "$(git rev-parse HEAD)"
+gh run view <run-id>
+gh run view <run-id> --log-failed
+gh run download <run-id> --name pathstat-test-results --dir /tmp/pathstat-ci
+```
+
+Open `Tests.xcresult` in Xcode or browse `attachments/` for UI-test screenshots. The
+`attachments/manifest.json` file maps the exported files to their human-readable test names.
+CI uploads the bundle and attachments on success and failure when Xcode produces them.
+
 ## Signing (hard rule)
 
 - Every PATH-stat target (app, widget, Live Activity extensions) uses automatic signing with

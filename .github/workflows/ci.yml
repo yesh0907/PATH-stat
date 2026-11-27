@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: PATHKit package tests
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - &xcode
+        name: Select newest installed Xcode
+        id: xcode
+        run: |
+          developer_dir=$(python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+
+          def version(app):
+              with (app / 'Contents/Info.plist').open('rb') as info:
+                  return tuple(map(int, plistlib.load(info)['CFBundleShortVersionString'].split('.')))
+
+          apps = Path('/Applications').glob('Xcode*.app')
+          newest = max((app for app in apps if (app / 'Contents/Developer').is_dir()), key=version)
+          print(newest.resolve() / 'Contents/Developer')
+          PY
+          )
+          sudo xcode-select --switch "$developer_dir"
+          xcode_version=$(xcodebuild -version)
+          printf '%s\n' "$xcode_version"
+          echo "build=$(awk '/Build version/ {print $3}' <<< "$xcode_version")" >> "$GITHUB_OUTPUT"
+          swift --version
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Packages/PATHKit/.build
+          key: swiftpm-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('Packages/PATHKit/**') }}
+          restore-keys: swiftpm-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-
+
+      - name: Test PATHKit
+        run: |
+          unset PATH_LIVE
+          swift test --package-path Packages/PATHKit
+
+  app:
+    name: App build and simulator tests
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - *checkout
+      - *xcode
+
+      - name: Select iPhone simulator
+        id: simulator
+        run: |
+          simulator=$(xcrun simctl list --json | jq -er '
+            ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
+              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
+            | first($runtimes[] as $runtime | .devices[$runtime.identifier][]?
+                | select(.isAvailable and (.name | startswith("iPhone ")))
+                | [.udid, .name, $runtime.version, $runtime.buildversion] | @tsv)
+              // error("No available iPhone simulator")
+          ')
+          IFS=$'\t' read -r udid name version build <<< "$simulator"
+          echo "Testing on $name (iOS $version, $build)"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Xcode build products
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/PATHStatDerivedData/Build
+          key: xcode-build-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat/**', 'PATHStatUITests/**', 'PATHStat.xcodeproj/**', 'Packages/PATHKit/**') }}
+
+      - name: Build and test PATHStat
+        timeout-minutes: 18
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          unset PATH_LIVE
+          mkdir -p "$RUNNER_TEMP/pathstat-results"
+          xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -destination-timeout 120 \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export UI-test screenshots
+        if: ${{ !cancelled() }}
+        run: |
+          results="$RUNNER_TEMP/pathstat-results"
+          if [[ -d "$results/Tests.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$results/Tests.xcresult" \
+              --output-path "$results/attachments"
+          fi
+
+      - name: Upload test results and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pathstat-test-results
+          path: ${{ runner.temp }}/pathstat-results/
+          include-hidden-files: true
+          retention-days: 14
