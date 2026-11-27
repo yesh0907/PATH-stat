@@ -1,7 +1,7 @@
 import Foundation
 
 /// A single predicted train at a station, as reported by the realtime feed.
-public struct TrainArrival: Identifiable, Hashable, Sendable {
+public struct TrainArrival: Identifiable, Hashable, Codable, Sendable {
     public let id: String
     public let station: StationCode
     public let direction: Direction
@@ -126,7 +126,7 @@ public struct DepartureBoard: Sendable {
 }
 
 /// A full parsed realtime feed.
-public struct PATHSnapshot: Sendable {
+public struct PATHSnapshot: Codable, Sendable {
     public let fetchedAt: Date
     public let boards: [StationCode: [Direction: [TrainArrival]]]
 

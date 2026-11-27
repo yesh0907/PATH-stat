@@ -1,7 +1,7 @@
 import Foundation
 
 /// PATH service patterns.
-public enum PATHLine: String, CaseIterable, Sendable {
+public enum PATHLine: String, Codable, CaseIterable, Sendable {
     case newarkWTC
     case hobokenWTC
     case journalSquare33rd

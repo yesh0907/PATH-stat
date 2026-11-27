@@ -2,13 +2,13 @@ import CoreLocation
 import Foundation
 
 /// Direction of travel as labelled by the PATH realtime feed.
-public enum Direction: String, Codable, CaseIterable, Sendable {
+public enum Direction: String, Codable, CodingKeyRepresentable, CaseIterable, Sendable {
     case toNY = "ToNY"
     case toNJ = "ToNJ"
 }
 
 /// PATH station codes as used by the realtime feed's `consideredStation` / `target` fields.
-public enum StationCode: String, Codable, CaseIterable, Sendable {
+public enum StationCode: String, Codable, CodingKeyRepresentable, CaseIterable, Sendable {
     case newark = "NWK"
     case harrison = "HAR"
     case journalSquare = "JSQ"
