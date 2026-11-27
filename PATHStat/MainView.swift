@@ -8,6 +8,7 @@ struct MainView: View {
     let location: LocationService
     /// Live mode only: shares fetched snapshots with the widget.
     var widgetSync: WidgetSync?
+    let liveActivities: LiveActivityController
 
     /// Feed refresh cadence while the screen is visible and the app is active.
     static let refreshInterval: Duration = .seconds(20)
@@ -42,9 +43,12 @@ struct MainView: View {
                     favorites: model.favorites,
                     current: model.trip,
                     select: { model.select($0, manual: true) },
-                    remove: model.removeFavorite
+                    remove: model.removeFavorite,
+                    startLiveActivity: startLiveActivity
                 )
-                LiveActivityPlaceholder()
+                LiveActivitySection(controller: liveActivities, trip: model.trip) {
+                    startLiveActivity(model.trip)
+                }
             }
             .padding()
         }
@@ -66,13 +70,21 @@ struct MainView: View {
         }
         .task { location.start() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { location.refresh() }
-            if phase == .background { widgetSync?.didEnterBackground() }
+            if phase == .active {
+                location.refresh()
+                liveActivities.sync()
+            }
+            if phase == .background {
+                widgetSync?.didEnterBackground()
+                liveActivities.didEnterBackground()
+            }
         }
         .onChange(of: model.lastFetchAt) { _, _ in
             // `lastFetchAt` only changes on a successful fetch.
             if let snapshot = model.snapshot { widgetSync?.didFetch(snapshot) }
+            updateLiveActivity()
         }
+        .onChange(of: model.errorMessage) { _, _ in updateLiveActivity() }
         .onChange(of: location.location, initial: true) { _, newLocation in
             model.locationDidChange(newLocation, authorization: location.authorization)
         }
@@ -88,6 +100,14 @@ struct MainView: View {
     }
 
     private var origin: Station { StationCatalog.station(model.trip.origin) }
+
+    private func startLiveActivity(_ trip: Trip) {
+        Task { await liveActivities.start(trip: trip, snapshot: model.snapshot, fetchFailed: model.errorMessage != nil) }
+    }
+
+    private func updateLiveActivity() {
+        Task { await liveActivities.update(snapshot: model.snapshot, fetchFailed: model.errorMessage != nil) }
+    }
 
     // MARK: Header
 
@@ -420,23 +440,81 @@ private struct LocationDeniedBanner: View {
     }
 }
 
-/// Phase-4 hook: Live Activities aren't implemented yet.
-private struct LiveActivityPlaceholder: View {
+/// Start / stop the Live Activity for the current trip, or switch it from another trip.
+private struct LiveActivitySection: View {
+    let controller: LiveActivityController
+    let trip: Trip
+    let start: () -> Void
+
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
-        VStack(spacing: 4) {
-            Button {} label: {
-                Label("Start Live Activity", systemImage: "dot.radiowaves.left.and.right")
-                    .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            if let active = controller.activeTrip {
+                status(active)
+                if !active.sameRoute(as: trip) {
+                    startButton("Switch to this trip", hint: "Shows \(trip.title) on the Lock Screen instead.")
+                }
+                Button(role: .destructive) {
+                    Task { await controller.stop() }
+                } label: {
+                    Label("Stop Live Activity", systemImage: "stop.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("live-activity-stop")
+            } else if controller.areActivitiesEnabled {
+                startButton("Start Live Activity", hint: "Shows the next trains on the Lock Screen and in the Dynamic Island.")
+            } else {
+                Text("Live Activities are turned off for PATH Stat. Turn them on in Settings to see the next trains on your Lock Screen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("live-activity-disabled")
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("live-activity-settings")
             }
-            .buttonStyle(.bordered)
-            .disabled(true)
-            .accessibilityHint("Coming soon")
-            .accessibilityIdentifier("live-activity-button")
-            Text("Coming soon")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            if let error = controller.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("live-activity-error")
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func startButton(_ title: String, hint: String) -> some View {
+        Button(action: start) {
+            Label(title, systemImage: "dot.radiowaves.left.and.right")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier("live-activity-button")
+    }
+
+    @ViewBuilder
+    private func status(_ active: Trip) -> some View {
+        let isThisTrip = active.sameRoute(as: trip)
+        Group {
+            if let endsAt = controller.endsAt {
+                if isThisTrip {
+                    Text("Live on Lock Screen · until \(Text(endsAt, style: .time))")
+                } else {
+                    Text("Live on Lock Screen: \(active.title) · until \(Text(endsAt, style: .time))")
+                }
+            } else {
+                Text(isThisTrip ? "Live on Lock Screen" : "Live on Lock Screen: \(active.title)")
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.green)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("live-activity-status")
     }
 }
 
@@ -444,35 +522,35 @@ private struct LiveActivityPlaceholder: View {
 
 #Preview("Trains") {
     let environment = Scenario.trains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("Near 23rd St") {
     let environment = Scenario.trains.makeEnvironment(location: StationCatalog.station(.twentyThirdStreet).location)
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("Loading") {
     let environment = Scenario.loading.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("No trains") {
     let environment = Scenario.noTrains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("Offline") {
     let environment = Scenario.offline.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("Offline with data") {
     let environment = Scenario.offlineWithData.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }
 
 #Preview("Location denied") {
     let environment = Scenario.locationDenied.makeEnvironment()
-    MainView(model: environment.model, location: environment.location)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
 }

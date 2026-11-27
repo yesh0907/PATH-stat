@@ -7,6 +7,7 @@ struct FavoritesSection: View {
     let current: Trip
     let select: (Trip) -> Void
     let remove: (Trip) -> Void
+    var startLiveActivity: ((Trip) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -59,6 +60,11 @@ struct FavoritesSection: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            if let startLiveActivity {
+                Button { startLiveActivity(trip) } label: {
+                    Label("Start Live Activity", systemImage: "dot.radiowaves.left.and.right")
+                }
+            }
             Button(role: .destructive) { remove(trip) } label: {
                 Label("Remove from Favorites", systemImage: "star.slash")
             }
@@ -66,6 +72,7 @@ struct FavoritesSection: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityTitle(trip))
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: "Start Live Activity") { startLiveActivity?(trip) }
         .accessibilityAction(named: "Remove from Favorites") { remove(trip) }
         .accessibilityIdentifier("favorite-\(trip.id)")
     }
