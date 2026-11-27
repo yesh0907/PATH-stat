@@ -58,7 +58,7 @@ XXXL type) and `docs/screenshots/phase2/ui-tests/` (one per UI test).
 |---|---|---|---|---|
 | ![](docs/screenshots/phase3/widget-gallery-live.png) | ![](docs/screenshots/phase3/widget-gallery-stale.png) | ![](docs/screenshots/phase3/widget-gallery-offline.png) | ![](docs/screenshots/phase3/widget-gallery-unavailable.png) | ![](docs/screenshots/phase3/widget-gallery-noTrains.png) |
 
-On the Home Screen: `docs/screenshots/phase3/home-screen-widgets.png`.
+On the Home Screen: `docs/screenshots/phase3/home-screen-widgets.png`, captured once during development with a one-off SpringBoard automation script that was removed as too flaky. Widget placement on the Lock Screen is not yet visually verified.
 
 - **"Next PATH train"** widget (`PATHStatWidget` extension) in **small** and **medium** on the
   Home Screen, and **rectangular**, **inline** and **circular** on the Lock Screen. Tapping it

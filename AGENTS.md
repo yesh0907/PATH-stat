@@ -71,15 +71,6 @@ xcrun simctl ui $UDID content_size extra-extra-extra-large  # reset: large
 xcrun simctl openurl $UDID 'pathstat://trip?from=HOB&to=WTC'  # deep link (shows a system confirm)
 ```
 
-Real widget on the Home Screen (opt-in: live feed, edits the Simulator's Home Screen through
-Springboard, best effort across iOS versions; skipped unless the env var is set):
-
-```sh
-TEST_RUNNER_PATH_WIDGET_SCREENSHOTS=1 xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:PATHStatUITests/HomeScreenWidgetUITests -resultBundlePath /tmp/pathstat/Widget.xcresult
-```
-
 `simctl openurl` leaves an "Open in PATH Stat?" prompt that `simctl` can't dismiss. While it
 is up, the app's `scenePhase` is not `.active`, so the refresh loop never starts and UI tests
 time out showing "Loading trains…". Before running UI tests, go to the home screen, or
@@ -92,6 +83,14 @@ Verified simulators: "iPhone 17" and "iPhone 18 Pro" (iOS 27.0 runtime).
 
 If a simulator boot fails with "Unable to locate launchd_sim", run
 `killall -9 com.apple.CoreSimulator.CoreSimulatorService` and retry.
+
+## Live simulator checks
+
+For manual or visual checks — widgets on the Home/Lock Screen, Live Activity and Dynamic Island, permission prompts, deep links, before/after screenshots — drive a live iOS 27 simulator with [`agent-device`](https://agent-device.dev) instead of writing throwaway UI tests. XCUITests are for regression coverage only; never rebuild a UI test 3+ times just to reach a system screen.
+
+- Get a booted simulator with your fresh build installed (`xcrun simctl install`; use `-UITestScenario …` for deterministic screens). In Up.computer, `device_open` boots one and returns the pinned `agent-device` command.
+- Drive it: open the app, act on elements by ref/accessibility id, and verify with assertions (`wait text`, `is`) — a screenshot alone isn't verification. Keep screenshots as evidence in the PR or task output.
+- Usage guide: the agent-device skill — https://github.com/callstack/agent-device/blob/main/skills/agent-device/SKILL.md (iOS-specific: https://github.com/callstack/agent-device/blob/main/skills/ios-simulator/SKILL.md).
 
 ## Signing (hard rule)
 
