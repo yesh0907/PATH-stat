@@ -116,10 +116,17 @@ struct WidgetEmptyState: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if state.status == .unavailable {
+            switch state.status {
+            case .unavailable:
                 Label("Can't reach PATH", systemImage: "wifi.exclamationmark")
                     .font(.subheadline.weight(.semibold))
-            } else {
+            case .stale, .offline:
+                Text("No upcoming trains")
+                    .font(.subheadline.weight(.semibold))
+                Text("Open for latest times")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .live:
                 Text("No trains predicted")
                     .font(.subheadline.weight(.semibold))
                 Text("Service may be suspended")
@@ -242,7 +249,9 @@ struct MediumWidgetView: View {
             WidgetCountdown(train: train, date: state.date)
                 .font(.subheadline.weight(.bold))
                 .multilineTextAlignment(.trailing)
-                .frame(width: 52, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 64, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(train.widgetAccessibilityLabel)
@@ -261,15 +270,12 @@ struct RectangularWidgetView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             if let next = state.next {
-                HStack(spacing: 4) {
-                    WidgetCountdown(train: next, date: state.date)
-                        .font(.body.weight(.semibold))
-                        .fixedSize()
-                    Text(next.widgetHeadsign)
-                        .font(.caption)
-                        .lineLimit(1)
-                }
-                if let following = state.following {
+                Text("\(countdownText(next)) \(next.widgetHeadsign)")
+                    .font(.caption)
+                    .lineLimit(1)
+                if state.status == .stale || state.status == .offline {
+                    statusLine
+                } else if let following = state.following {
                     Text("then \(Text(following.arrival, style: .time))")
                         .font(.caption)
                         .lineLimit(1)
@@ -277,7 +283,7 @@ struct RectangularWidgetView: View {
                     statusLine
                 }
             } else {
-                Text(state.status == .unavailable ? "Can't reach PATH" : "No trains predicted")
+                Text(emptyText)
                     .font(.caption)
                 statusLine
             }
@@ -285,6 +291,25 @@ struct RectangularWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
+    }
+
+    private var emptyText: String {
+        switch state.status {
+        case .unavailable: "Can't reach PATH"
+        case .stale, .offline: "No upcoming trains"
+        case .live: "No trains predicted"
+        }
+    }
+
+    // One interpolated Text: a countdown/headsign HStack renders blank in WidgetKit's renderer.
+    private func countdownText(_ next: TrainArrival) -> Text {
+        if next.arrival <= state.date {
+            Text("Due").font(.body.weight(.semibold))
+        } else {
+            Text(timerInterval: state.date...next.arrival, countsDown: true)
+                .font(.body.weight(.semibold))
+                .monospacedDigit()
+        }
     }
 
     @ViewBuilder
@@ -299,7 +324,12 @@ struct RectangularWidgetView: View {
 
     private var accessibilityText: String {
         guard !state.trains.isEmpty else {
-            return "\(state.shortTitle), \(state.status == .unavailable ? "can't reach PATH" : "no trains predicted")"
+            let empty: String = switch state.status {
+            case .unavailable: "can't reach PATH"
+            case .stale, .offline: "no upcoming trains"
+            case .live: "no trains predicted"
+            }
+            return "\(state.shortTitle), \(empty)"
         }
         return ([state.shortTitle] + state.trains.prefix(2).map(\.widgetAccessibilityLabel)).joined(separator: "; ")
     }
@@ -317,6 +347,8 @@ struct InlineWidgetView: View {
             }
         } else if state.status == .unavailable {
             Text("Can't reach PATH")
+        } else if state.status == .stale || state.status == .offline {
+            Text("\(state.destinationName) · Open for latest")
         } else {
             Text("\(state.destinationName) · No trains")
         }

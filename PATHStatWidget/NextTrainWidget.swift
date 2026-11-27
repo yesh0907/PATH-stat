@@ -72,7 +72,7 @@ struct NextTrainWidgetEntryView: View {
             .containerBackground(for: .widget) {
                 switch family {
                 case .accessoryCircular, .accessoryRectangular, .accessoryInline:
-                    AccessoryWidgetBackground()
+                    Color.clear
                 default:
                     Color(.systemBackground)
                 }
