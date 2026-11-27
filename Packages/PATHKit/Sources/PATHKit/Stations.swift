@@ -28,15 +28,25 @@ public enum StationCode: String, Codable, CaseIterable, Sendable {
 public struct Station: Identifiable, Hashable, Sendable {
     public let code: StationCode
     public let name: String
+    /// Compact name for chips and titles, e.g. "Grove St", "Journal Sq", "WTC".
+    public let shortName: String
     public let latitude: Double
     public let longitude: Double
     public let lines: [PATHLine]
 
     public var id: StationCode { code }
 
-    public init(code: StationCode, name: String, latitude: Double, longitude: Double, lines: [PATHLine]) {
+    public init(
+        code: StationCode,
+        name: String,
+        shortName: String? = nil,
+        latitude: Double,
+        longitude: Double,
+        lines: [PATHLine]
+    ) {
         self.code = code
         self.name = name
+        self.shortName = shortName ?? name
         self.latitude = latitude
         self.longitude = longitude
         self.lines = lines
@@ -60,26 +70,27 @@ public struct Station: Identifiable, Hashable, Sendable {
 
 /// Static catalog of PATH stations.
 public enum StationCatalog {
-    private static let raw: [(StationCode, String, Double, Double)] = [
-        (.newark, "Newark", 40.73454, -74.16375),
-        (.harrison, "Harrison", 40.73942, -74.15587),
-        (.journalSquare, "Journal Square", 40.73301, -74.06289),
-        (.groveStreet, "Grove Street", 40.71966, -74.04245),
-        (.newport, "Newport", 40.72699, -74.03383),
-        (.exchangePlace, "Exchange Place", 40.71676, -74.03238),
-        (.hoboken, "Hoboken", 40.73573, -74.02931),
-        (.worldTradeCenter, "World Trade Center", 40.71271, -74.01193),
-        (.christopherStreet, "Christopher Street", 40.73291, -74.00707),
-        (.ninthStreet, "9th Street", 40.73424, -73.99895),
-        (.fourteenthStreet, "14th Street", 40.73735, -73.99684),
-        (.twentyThirdStreet, "23rd Street", 40.74291, -73.99266),
-        (.thirtyThirdStreet, "33rd Street", 40.74885, -73.98820),
+    private static let raw: [(StationCode, String, String, Double, Double)] = [
+        (.newark, "Newark", "Newark", 40.73454, -74.16375),
+        (.harrison, "Harrison", "Harrison", 40.73942, -74.15587),
+        (.journalSquare, "Journal Square", "Journal Sq", 40.73301, -74.06289),
+        (.groveStreet, "Grove Street", "Grove St", 40.71966, -74.04245),
+        (.newport, "Newport", "Newport", 40.72699, -74.03383),
+        (.exchangePlace, "Exchange Place", "Exchange Pl", 40.71676, -74.03238),
+        (.hoboken, "Hoboken", "Hoboken", 40.73573, -74.02931),
+        (.worldTradeCenter, "World Trade Center", "WTC", 40.71271, -74.01193),
+        (.christopherStreet, "Christopher Street", "Christopher St", 40.73291, -74.00707),
+        (.ninthStreet, "9th Street", "9th St", 40.73424, -73.99895),
+        (.fourteenthStreet, "14th Street", "14th St", 40.73735, -73.99684),
+        (.twentyThirdStreet, "23rd Street", "23rd St", 40.74291, -73.99266),
+        (.thirtyThirdStreet, "33rd Street", "33rd St", 40.74885, -73.98820),
     ]
 
-    public static let all: [Station] = raw.map { code, name, lat, lon in
+    public static let all: [Station] = raw.map { code, name, shortName, lat, lon in
         Station(
             code: code,
             name: name,
+            shortName: shortName,
             latitude: lat,
             longitude: lon,
             lines: PATHLine.allCases.filter { $0.stops.contains(code) }
