@@ -72,7 +72,7 @@ public enum PATHDateParser {
         }
         guard i == s.count else { return nil }
         guard (1...12).contains(month), (1...31).contains(day),
-              hour < 24, minute < 60, second <= 60 else { return nil }
+              hour < 24, minute < 60, second < 60 else { return nil }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = offsetSeconds == nil ? pathTimeZone : TimeZone(secondsFromGMT: 0)!

@@ -104,6 +104,7 @@ public struct PATHClient: Sendable {
         }
 
         var boards: [StationCode: [Direction: [TrainArrival]]] = [:]
+        var seenIDs: [String: Int] = [:]
         for result in results {
             guard let raw = result.consideredStation, let station = StationCode(rawValue: raw) else { continue }
             for destination in result.destinations ?? [] {
@@ -111,7 +112,9 @@ public struct PATHClient: Sendable {
                 var trains = boards[station]?[direction] ?? []
                 for message in destination.messages ?? [] {
                     guard let arrival = makeArrival(message, station: station, direction: direction) else { continue }
-                    trains.append(arrival)
+                    let duplicates = seenIDs[arrival.id, default: 0]
+                    seenIDs[arrival.id] = duplicates + 1
+                    trains.append(duplicates == 0 ? arrival : arrival.withID("\(arrival.id)#\(duplicates)"))
                 }
                 trains.sort { $0.arrival < $1.arrival }
                 boards[station, default: [:]][direction] = trains
@@ -135,7 +138,7 @@ public struct PATHClient: Sendable {
             direction: direction,
             target: target,
             headsign: m.headSign?.trimmingCharacters(in: .whitespaces) ?? "",
-            line: PATHLine.identify(lineColor: colorText, target: target),
+            line: PATHLine.identify(lineColor: colorText),
             lineColors: colors,
             arrival: lastUpdated.addingTimeInterval(seconds),
             arrivalTimeMessage: m.arrivalTimeMessage ?? "",
@@ -212,7 +215,7 @@ public struct PATHClient: Sendable {
     }
 
     private static func epochMillis(_ text: String?) -> Date? {
-        guard let text, let ms = Double(text.trimmingCharacters(in: .whitespaces)) else { return nil }
+        guard let text, let ms = Double(text.trimmingCharacters(in: .whitespaces)), ms.isFinite else { return nil }
         return Date(timeIntervalSince1970: ms / 1000)
     }
 }

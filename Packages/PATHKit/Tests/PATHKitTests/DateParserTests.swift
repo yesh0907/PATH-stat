@@ -37,7 +37,7 @@ struct DateParserTests {
     @Test(arguments: [
         "", "garbage", "2026-11-26", "2026-11-26T20:44", "2026-11-26T20:44:07.-05:00",
         "2026-13-26T20:44:07Z", "2026-02-30T20:44:07Z", "2026-11-26T25:44:07Z", "2026-11-26T20:44:07Q",
-        "2026-11-26T20:44:07Zjunk",
+        "2026-11-26T20:44:07Zjunk", "2026-11-26T12:00:60Z", "2026-11-26T23:59:60Z",
     ])
     func rejectsInvalid(_ text: String) {
         #expect(PATHDateParser.parse(text) == nil)

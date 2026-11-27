@@ -40,4 +40,16 @@ struct AlertsTests {
         #expect(alerts[1].message == "a")
         #expect(alerts[1].modifiedAt == Date(timeIntervalSince1970: 2))
     }
+
+    @Test func nonFiniteDatesAreIgnored() throws {
+        let json = """
+        {"status":"Success","data":[
+          {"incidentMessage":{"subject":"NaN"},"CreatedDate":"NaN","ModifiedDate":"Infinity"},
+          {"incidentMessage":{"subject":"Fallback"},"CreatedDate":"inf","ModifiedDate":"3000"}
+        ]}
+        """
+        let alerts = try PATHClient.parseAlerts(Data(json.utf8))
+        #expect(alerts.map(\.subject) == ["Fallback"])
+        #expect(alerts[0].createdAt == Date(timeIntervalSince1970: 3))
+    }
 }

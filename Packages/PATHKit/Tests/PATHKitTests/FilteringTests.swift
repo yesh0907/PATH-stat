@@ -101,4 +101,45 @@ struct FilteringTests {
         let combined = s.departures(at: .journalSquare, direction: .toNY, toward: .thirtyThirdStreet, headsign: "via", now: now)
         #expect(combined.trains.map(\.line) == [.journalSquare33rdViaHoboken])
     }
+
+    @Test func shortTurnedNewarkTrainDoesNotReachNewark() throws {
+        let s = try snapshot("WTC", "ToNJ", [
+            Msg(target: "JSQ", seconds: "60", color: "D93A30", headsign: "Journal Square"),
+            Msg(target: "NWK", seconds: "120", color: "D93A30", headsign: "Newark"),
+        ])
+        #expect(s.departures(at: .worldTradeCenter, direction: .toNJ, toward: .newark, now: now).trains.map(\.target) == [.newark])
+        #expect(s.departures(at: .worldTradeCenter, direction: .toNJ, toward: .harrison, now: now).trains.map(\.target) == [.newark])
+        #expect(s.departures(at: .worldTradeCenter, direction: .toNJ, toward: .groveStreet, now: now).trains.count == 2)
+        #expect(s.departures(at: .worldTradeCenter, direction: .toNJ, toward: .journalSquare, now: now).trains.count == 2)
+    }
+
+    @Test func shortTurnedThirtyThirdTrainEndsAtFourteenth() throws {
+        let s = try snapshot("GRV", "ToNY", [
+            Msg(target: "14S", seconds: "60", color: "FF9900", headsign: "14th Street"),
+            Msg(target: "33S", seconds: "120", color: "FF9900", headsign: "33rd Street"),
+        ])
+        #expect(s.departures(at: .groveStreet, direction: .toNY, toward: .thirtyThirdStreet, now: now).trains.map(\.target) == [.thirtyThirdStreet])
+        #expect(s.departures(at: .groveStreet, direction: .toNY, toward: .twentyThirdStreet, now: now).trains.map(\.target) == [.thirtyThirdStreet])
+        #expect(s.departures(at: .groveStreet, direction: .toNY, toward: .fourteenthStreet, now: now).trains.count == 2)
+        #expect(s.departures(at: .groveStreet, direction: .toNY, toward: .christopherStreet, now: now).trains.count == 2)
+    }
+
+    @Test func targetOffLineOrBehindTrainIsIgnored() throws {
+        let s = try snapshot("GRV", "ToNY", [
+            Msg(target: "HOB", seconds: "60", color: "FF9900", headsign: "Hoboken"),
+            Msg(target: "JSQ", seconds: "120", color: "FF9900", headsign: "Journal Square"),
+        ])
+        #expect(s.departures(at: .groveStreet, direction: .toNY, toward: .thirtyThirdStreet, now: now).trains.count == 2)
+    }
+
+    @Test func identicalTrainsGetDistinctIDs() throws {
+        let s = try snapshot("GRV", "ToNY", [
+            Msg(target: "33S", seconds: "0", color: "FF9900", headsign: "33rd Street"),
+            Msg(target: "33S", seconds: "0", color: "FF9900", headsign: "33rd Street"),
+            Msg(target: "33S", seconds: "0", color: "FF9900", headsign: "33rd Street"),
+        ])
+        let ids = try #require(s.boards[.groveStreet]?[.toNY]).map(\.id)
+        #expect(ids.count == 3)
+        #expect(Set(ids).count == 3)
+    }
 }

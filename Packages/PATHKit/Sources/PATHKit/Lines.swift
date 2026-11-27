@@ -58,15 +58,9 @@ public enum PATHLine: String, CaseIterable, Sendable {
         uniqueKeysWithValues: allCases.map { (colorSet($0.colorHex), $0) }
     )
 
-    /// Identifies a line from the feed's `lineColor` (single hex or comma list).
-    /// If the colour is unrecognised, falls back to the only line whose colour set is a
-    /// superset of the given colours and which serves `target`, when that is unambiguous.
-    public static func identify(lineColor: String, target: StationCode?) -> PATHLine? {
-        let colors = colorSet(lineColor)
-        guard !colors.isEmpty else { return nil }
-        if let exact = byColor[colors] { return exact }
-        guard let target else { return nil }
-        let candidates = allCases.filter { colors.isSubset(of: colorSet($0.colorHex)) && $0.stops.contains(target) }
-        return candidates.count == 1 ? candidates[0] : nil
+    /// Identifies a line from the feed's `lineColor` (single hex or comma list, order-insensitive).
+    /// Returns nil for an empty or unrecognised colour.
+    public static func identify(lineColor: String) -> PATHLine? {
+        byColor[colorSet(lineColor)]
     }
 }

@@ -36,6 +36,14 @@ A train's arrival time is `lastUpdated + secondsToArrival`. Lines are identified
 | Hoboken–33rd St | `4D92FB` | HOB CHR 09S 14S 23S 33S |
 | Journal Square–33rd St via Hoboken | `4D92FB,FF9900` | JSQ GRV NEW HOB CHR 09S 14S 23S 33S |
 
+`toward: X` keeps trains that stop at X later on their line, in their direction. A short-turned
+train (its `target` is on its line but before the line's end, e.g. a Newark–WTC train ending at
+JSQ) only matches stops up to its `target`.
+
+`arrivalTimeMessage` is usually `"N min"` but can be `"Delayed"` (seen live at NEW ToNY, with a
+normal `secondsToArrival`). `TrainArrival` keeps it as-is; the UI should show it rather than
+assume a minute count.
+
 ### Service alerts
 
 `GET https://www.panynj.gov/bin/portauthority/everbridge/incidents?status=All&department=Path`

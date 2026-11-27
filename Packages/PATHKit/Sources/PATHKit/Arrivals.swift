@@ -55,7 +55,8 @@ public struct TrainArrival: Identifiable, Hashable, Sendable {
     }
 
     /// Whether this train will stop at `station` after leaving its current station.
-    /// Uses the identified line's stop order in the train's direction; falls back to
+    /// Uses the identified line's stop order in the train's direction, cut short at `target`
+    /// when the train terminates before the end of its line (short-turned); falls back to
     /// `target == station` when the line is unknown or doesn't list the current station.
     public func stops(at station: StationCode) -> Bool {
         guard let line,
@@ -63,10 +64,22 @@ public struct TrainArrival: Identifiable, Hashable, Sendable {
               let there = line.stops.firstIndex(of: station) else {
             return target == station
         }
+        let end = target.flatMap { line.stops.firstIndex(of: $0) }
         switch direction {
-        case .toNY: return there > here
-        case .toNJ: return there < here
+        case .toNY:
+            guard let end, end >= here else { return there > here }
+            return there > here && there <= end
+        case .toNJ:
+            guard let end, end <= here else { return there < here }
+            return there < here && there >= end
         }
+    }
+
+    func withID(_ id: String) -> TrainArrival {
+        TrainArrival(
+            id: id, station: station, direction: direction, target: target, headsign: headsign, line: line,
+            lineColors: lineColors, arrival: arrival, arrivalTimeMessage: arrivalTimeMessage, lastUpdated: lastUpdated
+        )
     }
 }
 

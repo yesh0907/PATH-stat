@@ -70,16 +70,16 @@ struct CatalogTests {
     }
 
     @Test func lineIdentification() {
-        #expect(PATHLine.identify(lineColor: "D93A30", target: .worldTradeCenter) == .newarkWTC)
-        #expect(PATHLine.identify(lineColor: "65c100", target: nil) == .hobokenWTC)
-        #expect(PATHLine.identify(lineColor: "#FF9900", target: .thirtyThirdStreet) == .journalSquare33rd)
-        #expect(PATHLine.identify(lineColor: "4D92FB", target: .hoboken) == .hoboken33rd)
-        #expect(PATHLine.identify(lineColor: "4D92FB,FF9900", target: .thirtyThirdStreet) == .journalSquare33rdViaHoboken)
-        #expect(PATHLine.identify(lineColor: "FF9900, 4D92FB", target: .journalSquare) == .journalSquare33rdViaHoboken)
-        #expect(PATHLine.identify(lineColor: "", target: .hoboken) == nil)
-        #expect(PATHLine.identify(lineColor: "000000", target: .hoboken) == nil)
+        #expect(PATHLine.identify(lineColor: "D93A30") == .newarkWTC)
+        #expect(PATHLine.identify(lineColor: "65c100") == .hobokenWTC)
+        #expect(PATHLine.identify(lineColor: "#FF9900") == .journalSquare33rd)
+        #expect(PATHLine.identify(lineColor: "4D92FB") == .hoboken33rd)
+        #expect(PATHLine.identify(lineColor: "4D92FB,FF9900") == .journalSquare33rdViaHoboken)
+        #expect(PATHLine.identify(lineColor: "FF9900, 4D92FB") == .journalSquare33rdViaHoboken)
+        #expect(PATHLine.identify(lineColor: "") == nil)
+        #expect(PATHLine.identify(lineColor: "000000") == nil)
         for line in PATHLine.allCases {
-            #expect(PATHLine.identify(lineColor: line.colorHex, target: nil) == line)
+            #expect(PATHLine.identify(lineColor: line.colorHex) == line)
             #expect(!line.displayName.isEmpty)
         }
     }
