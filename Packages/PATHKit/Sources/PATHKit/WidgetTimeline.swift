@@ -39,8 +39,10 @@ public enum WidgetTimeline {
     /// - Entries at `now`, each train's arrival, each train's `arrival + departedGrace`, and
     ///   `fetchedAt + staleAfter`; only dates ≥ `now`, deduplicated and sorted.
     /// - Each entry lists up to `maxTrains` trains with `arrival + departedGrace` after its date.
-    /// - Status: no snapshot → one `.unavailable` entry; `fetchFailed` → `.offline`; else
-    ///   `.stale` from `fetchedAt + staleAfter`, `.live` before.
+    /// - Status: no snapshot → one `.unavailable` entry. Otherwise, per entry with `shown` trains:
+    ///   `fetchFailed` → `.offline` (`.unavailable` when no trains remain at that date);
+    ///   else `.stale` from `fetchedAt + staleAfter` or when a live snapshot's trains have all
+    ///   departed by that date but the snapshot originally had upcoming trains; `.live` before.
     /// - `reloadAt`: no snapshot or failed fetch → `now + retryInterval`; no upcoming trains →
     ///   `now + idleInterval`; else the earlier of `now + refreshInterval` and the last train's
     ///   `arrival + departedGrace`, but no earlier than `now + retryInterval`.
@@ -64,19 +66,27 @@ public enum WidgetTimeline {
             dates.insert(train.arrival)
             dates.insert(train.arrival.addingTimeInterval(grace))
         }
+        let upcoming = trains.filter { $0.arrival.addingTimeInterval(grace) > now }
         let entries = dates.filter { $0 >= now }.sorted().map { date in
-            let status: WidgetEntryState.Status = fetchFailed ? .offline : (date >= staleAt ? .stale : .live)
+            let shown = Array(trains.filter { $0.arrival.addingTimeInterval(grace) > date }.prefix(maxTrains))
+            let status: WidgetEntryState.Status
+            if fetchFailed {
+                status = shown.isEmpty ? .unavailable : .offline
+            } else if date >= staleAt || (shown.isEmpty && !upcoming.isEmpty) {
+                status = .stale
+            } else {
+                status = .live
+            }
             return WidgetEntryState(
                 date: date,
                 trip: trip,
-                trains: Array(trains.filter { $0.arrival.addingTimeInterval(grace) > date }.prefix(maxTrains)),
+                trains: shown,
                 fetchedAt: snapshot.fetchedAt,
                 status: status
             )
         }
 
         let reloadAt: Date
-        let upcoming = trains.filter { $0.arrival.addingTimeInterval(grace) > now }
         if fetchFailed {
             reloadAt = now.addingTimeInterval(retryInterval)
         } else if let last = upcoming.last {

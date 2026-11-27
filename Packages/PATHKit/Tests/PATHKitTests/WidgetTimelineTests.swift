@@ -77,9 +77,42 @@ struct WidgetTimelineTests {
 
     @Test func offlineStatusWhenFetchFailed() {
         let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([60, 300]), fetchFailed: true, now: now)
-        #expect(result.entries.allSatisfy { $0.status == .offline })
+        #expect(result.entries.filter { !$0.trains.isEmpty }.allSatisfy { $0.status == .offline })
+        #expect(result.entries.filter { $0.trains.isEmpty }.allSatisfy { $0.status == .unavailable })
         #expect(result.entries[0].trains.count == 2)
         #expect(result.reloadAt == now.addingTimeInterval(WidgetTimeline.retryInterval))
+    }
+
+    @Test func offlineSnapshotAllDepartedIsUnavailable() {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([-600]), fetchFailed: true, now: now)
+        #expect(!result.entries.isEmpty)
+        #expect(result.entries.allSatisfy { $0.status == .unavailable && $0.trains.isEmpty })
+        #expect(result.entries.allSatisfy { $0.fetchedAt != nil })
+    }
+
+    @Test func offlineTurnsUnavailableOnceLastTrainDeparts() throws {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([120]), fetchFailed: true, now: now)
+        let first = try #require(entry(at: 0, in: result.entries))
+        #expect(first.status == .offline)
+        #expect(first.trains.count == 1)
+        let tail = try #require(entry(at: 120 + grace, in: result.entries))
+        #expect(tail.status == .unavailable)
+        #expect(tail.trains.isEmpty)
+    }
+
+    @Test func liveTailEntryWithoutTrainsIsStale() throws {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([120]), fetchFailed: false, now: now)
+        let tail = try #require(entry(at: 120 + grace, in: result.entries))
+        #expect(tail.trains.isEmpty)
+        #expect(tail.status == .stale)
+    }
+
+    @Test func originallyEmptyLiveSnapshotStaysLive() {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([]), fetchFailed: false, now: now)
+        #expect(result.entries.allSatisfy { $0.status == .live || $0.date >= now.addingTimeInterval(WidgetTimeline.staleAfter) })
+        let first = result.entries.first
+        #expect(first?.trains.isEmpty == true)
+        #expect(first?.status == .live)
     }
 
     @Test func unavailableWithoutSnapshot() {
