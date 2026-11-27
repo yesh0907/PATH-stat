@@ -20,12 +20,13 @@ enum Scenario: String, CaseIterable, Sendable {
     static let scenarioArgument = "-UITestScenario"
     static let locationArgument = "-UITestLocation"
 
-    /// The scenario requested on the command line, if any. `-UITestLocation` alone implies `.trains`.
+    /// The scenario requested on the command line, if any. `-UITestLocation` or `-UITestFeedback`
+    /// alone implies `.trains`.
     static func fromLaunchArguments(_ arguments: [String] = ProcessInfo.processInfo.arguments)
         -> (scenario: Scenario, location: CLLocation?)? {
         let scenario = value(after: scenarioArgument, in: arguments).flatMap(Scenario.init(rawValue:))
         let location = value(after: locationArgument, in: arguments).flatMap(parseLocation)
-        guard scenario != nil || location != nil else { return nil }
+        guard scenario != nil || location != nil || arguments.contains(FeedbackScenario.argument) else { return nil }
         return (scenario ?? .trains, location)
     }
 
@@ -66,7 +67,8 @@ enum Scenario: String, CaseIterable, Sendable {
             model: BoardModel(store: store, initialSnapshot: initialSnapshot, fetch: fetch),
             location: location,
             widgetSync: nil,
-            liveActivities: LiveActivityController(backend: Self.liveActivityBackend())
+            liveActivities: LiveActivityController(backend: Self.liveActivityBackend()),
+            feedback: FeedbackScenario.fromLaunchArguments().makeCenter()
         )
     }
 
@@ -104,6 +106,8 @@ struct AppEnvironment {
     /// Shares fetched snapshots with the widget; nil in scenario mode.
     let widgetSync: WidgetSync?
     let liveActivities: LiveActivityController
+    /// In-app feedback: GitHub + Keychain live; stub service + in-memory token in scenario mode.
+    let feedback: FeedbackCenter
 
     /// Scenario environment when launched with `-UITestScenario` / `-UITestLocation`, else live.
     static func launch() -> AppEnvironment {
@@ -115,6 +119,8 @@ struct AppEnvironment {
         let store = TripStore.shared
         store.migrateIfNeeded(from: TripStore())
         TrainActivities.didStart = BackgroundRefresh.schedule
+        let feedback = FeedbackCenter.live()
+        BackgroundRefresh.feedback = feedback
         return AppEnvironment(
             model: BoardModel(store: store),
             location: LocationService(),
@@ -122,7 +128,8 @@ struct AppEnvironment {
             liveActivities: LiveActivityController(
                 backend: ActivityKitBackend(),
                 scheduleBackgroundRefresh: BackgroundRefresh.schedule
-            )
+            ),
+            feedback: feedback
         )
     }
 }

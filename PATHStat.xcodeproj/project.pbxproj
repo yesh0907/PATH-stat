@@ -158,6 +158,7 @@
 				A1000000000000000000E002 /* Frameworks */,
 				A1000000000000000000E003 /* Resources */,
 				A1000000000000000000E00A /* Embed Foundation Extensions */,
+				A1000000000000000000E00B /* Embed Git Commit */,
 			);
 			buildRules = (
 			);
@@ -293,6 +294,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A1000000000000000000E00B /* Embed Git Commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Git Commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Writes the source commit into the built Info.plist as PATHStatGitCommit (for feedback reports).\nset -u\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=$(git -C \"$SRCROOT\" rev-parse --short=12 HEAD 2>/dev/null) || COMMIT=\"\"\nif [ -z \"$COMMIT\" ]; then\n  COMMIT=\"unknown\"\nelif [ -n \"$(git -C \"$SRCROOT\" status --porcelain 2>/dev/null)\" ]; then\n  COMMIT=\"${COMMIT}-dirty\"\nfi\n/usr/libexec/PlistBuddy -c \"Delete :PATHStatGitCommit\" \"$PLIST\" >/dev/null 2>&1 || true\n/usr/libexec/PlistBuddy -c \"Add :PATHStatGitCommit string ${COMMIT}\" \"$PLIST\"\necho \"PATHStatGitCommit = ${COMMIT}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A1000000000000000000E001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -406,6 +430,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 63L4D2UQLD;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PATHStat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PATH Stat";
@@ -442,6 +467,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 63L4D2UQLD;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PATHStat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "PATH Stat";

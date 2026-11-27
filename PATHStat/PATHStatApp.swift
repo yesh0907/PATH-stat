@@ -12,7 +12,8 @@ struct PATHStatApp: App {
                     model: environment.model,
                     location: environment.location,
                     widgetSync: environment.widgetSync,
-                    liveActivities: environment.liveActivities
+                    liveActivities: environment.liveActivities,
+                    feedback: environment.feedback
                 )
             case .widgetGallery(let state):
                 WidgetGalleryView(state: state)

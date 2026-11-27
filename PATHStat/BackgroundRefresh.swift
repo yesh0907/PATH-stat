@@ -13,10 +13,13 @@ enum BackgroundRefresh {
 
     private static let logger = Logger(subsystem: "com.yesh0907.PATHStat", category: "liveactivity")
 
+    /// Live mode only: queued feedback is retried on each background refresh too.
+    static var feedback: FeedbackCenter?
+
     /// False with any UI-test / gallery launch argument.
     nonisolated static var isEnabled: Bool {
         let arguments = ProcessInfo.processInfo.arguments
-        return ![Scenario.scenarioArgument, Scenario.locationArgument,
+        return ![Scenario.scenarioArgument, Scenario.locationArgument, FeedbackScenario.argument,
                  LaunchMode.widgetGalleryArgument, LaunchMode.liveActivityGalleryArgument]
             .contains(where: arguments.contains)
     }
@@ -48,5 +51,6 @@ enum BackgroundRefresh {
         WidgetCenter.shared.reloadAllTimelines()
         await TrainActivities.update(snapshot: result.snapshot, fetchFailed: result.error != nil)
         if TrainActivities.current != nil { schedule() }
+        await feedback?.retry(force: false)
     }
 }

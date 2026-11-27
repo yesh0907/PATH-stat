@@ -9,12 +9,14 @@ struct MainView: View {
     /// Live mode only: shares fetched snapshots with the widget.
     var widgetSync: WidgetSync?
     let liveActivities: LiveActivityController
+    let feedback: FeedbackCenter
 
     /// Feed refresh cadence while the screen is visible and the app is active.
     static let refreshInterval: Duration = .seconds(20)
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingStationPicker = false
+    @State private var showingFeedbackSettings = false
 
     private struct RefreshKey: Hashable {
         let active: Bool
@@ -49,9 +51,11 @@ struct MainView: View {
                 LiveActivitySection(controller: liveActivities, trip: model.trip) {
                     startLiveActivity(model.trip)
                 }
+                FeedbackRow(center: feedback) { showingFeedbackSettings = true }
             }
             .padding()
         }
+        .environment(feedback)
         .background(Color(.systemGroupedBackground))
         .refreshable { await model.refresh() }
         // Refresh now, then every 20 s; restarts when the trip changes or the app returns to
@@ -69,10 +73,18 @@ struct MainView: View {
             }
         }
         .task { location.start() }
+        .task {
+            feedback.contextProvider = { [model, location, liveActivities] context in
+                FeedbackContextBuilder.fill(&context, model: model, location: location, liveActivities: liveActivities)
+            }
+            feedback.installDebugShakeButton()
+            feedback.start()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 location.refresh()
                 liveActivities.sync()
+                feedback.sceneDidBecomeActive()
             }
             if phase == .background {
                 widgetSync?.didEnterBackground()
@@ -96,6 +108,11 @@ struct MainView: View {
         }
         .sheet(isPresented: $showingStationPicker) {
             StationPickerView(current: model.trip.origin, location: location.location, select: model.selectStation)
+                .onAppear { feedback.currentScreen = "station picker" }
+                .onDisappear { feedback.currentScreen = "main" }
+        }
+        .sheet(isPresented: $showingFeedbackSettings) {
+            FeedbackSettingsView(center: feedback)
         }
     }
 
@@ -110,6 +127,12 @@ struct MainView: View {
     }
 
     // MARK: Header
+
+    /// "nearest" / "home station" / "selected": the header's context, without any distance.
+    static func stationContextWord(origin: StationCode, location: CLLocation?) -> String {
+        if let location, StationCatalog.stations(nearest: location).first?.station.code == origin { return "nearest" }
+        return origin == TripPlanner.homeStation ? "home station" : "selected"
+    }
 
     private var stationContext: (text: String, spoken: String) {
         if let here = location.location,
@@ -232,6 +255,8 @@ private struct BoardContent: View {
 private struct NoTrainsState: View {
     let destination: Station
 
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "tram")
@@ -250,6 +275,7 @@ private struct NoTrainsState: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("state-no-trains")
+        .onAppear { feedback?.record("No trains to \(destination.shortName)") }
     }
 }
 
@@ -257,6 +283,8 @@ private struct OfflineState: View {
     let message: String
     let isRetrying: Bool
     let retry: () -> Void
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -286,11 +314,14 @@ private struct OfflineState: View {
         .frame(maxWidth: .infinity)
         .padding(24)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onAppear { feedback?.record("Can't reach PATH: \(message)") }
     }
 }
 
 private struct OfflineBanner: View {
     let age: TimeInterval
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         Label("Can't update — showing data from \(Format.age(age)) ago", systemImage: "wifi.slash")
@@ -302,12 +333,15 @@ private struct OfflineBanner: View {
             .background(Color.orange, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("offline-banner")
+            .onAppear { feedback?.record("Can't update — showing old data") }
     }
 }
 
 private struct FreshnessFooter: View {
     let board: DepartureBoard
     let now: Date
+
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -319,6 +353,7 @@ private struct FreshnessFooter: View {
             if case .stale = board.freshness(at: now) {
                 Label("PATH data may be out of date", systemImage: "clock.badge.exclamationmark")
                     .foregroundStyle(.orange)
+                    .onAppear { feedback?.record("PATH data may be out of date") }
             }
         }
         .font(.footnote)
@@ -410,6 +445,7 @@ private struct LocationDeniedBanner: View {
     let chooseStation: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -425,6 +461,7 @@ private struct LocationDeniedBanner: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("location-denied-banner")
+        .onAppear { feedback?.record("Location is off") }
     }
 
     @ViewBuilder
@@ -447,6 +484,7 @@ private struct LiveActivitySection: View {
     let start: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -484,6 +522,9 @@ private struct LiveActivitySection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: controller.errorMessage, initial: true) { _, error in
+            if let error { feedback?.record("Live Activity: \(error)") }
+        }
     }
 
     private func startButton(_ title: String, hint: String) -> some View {
@@ -518,39 +559,117 @@ private struct LiveActivitySection: View {
     }
 }
 
+// MARK: - Feedback
+
+/// Send feedback, feedback settings, and how many reports are waiting to send.
+private struct FeedbackRow: View {
+    let center: FeedbackCenter
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button { center.present(trigger: .button) } label: {
+                    Label("Send feedback", systemImage: "exclamationmark.bubble")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Shake the phone to report from any screen.")
+                .accessibilityIdentifier("send-feedback-button")
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Feedback settings")
+                .accessibilityIdentifier("feedback-settings-button")
+            }
+            if center.pendingCount > 0 {
+                Button(action: openSettings) {
+                    Label(
+                        center.pendingCount == 1 ? "1 report waiting to send" : "\(center.pendingCount) reports waiting to send",
+                        systemImage: "tray.and.arrow.up"
+                    )
+                    .font(.footnote)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("feedback-pending")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Fills a report's context from the main screen's state. Location is reduced to the
+/// permission and the station header's context word; never coordinates or distances.
+@MainActor
+enum FeedbackContextBuilder {
+    static func fill(_ context: inout FeedbackContext, model: BoardModel, location: LocationService, liveActivities: LiveActivityController) {
+        let now = Date.now
+        context.trip = FeedbackContext.tripDescription(model.trip)
+        context.stationContext = MainView.stationContextWord(origin: model.trip.origin, location: location.location)
+        context.locationPermission = switch location.authorization {
+        case .authorized: "authorized"
+        case .denied: "denied"
+        case .notDetermined: "not determined"
+        }
+        context.feedFetchedAt = model.lastFetchAt
+        context.lastFeedError = model.errorMessage
+        if let board = model.board(now: now) {
+            context.feedAgeSeconds = board.age(at: now).map { Int($0) }
+            context.feedFreshness = switch board.freshness(at: now) {
+            case .fresh: "fresh"
+            case .stale: "stale"
+            case .unknown: "unknown"
+            }
+        }
+        var live: String
+        if let trip = liveActivities.activeTrip {
+            live = "Live: \(trip.title)"
+            if let endsAt = liveActivities.endsAt {
+                live += " until \(endsAt.formatted(Date.ISO8601FormatStyle()))"
+            }
+        } else {
+            live = liveActivities.areActivitiesEnabled ? "Off" : "Disabled in Settings"
+        }
+        if let error = liveActivities.errorMessage { live += " (error: \(error))" }
+        context.liveActivity = live
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Trains") {
     let environment = Scenario.trains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Near 23rd St") {
     let environment = Scenario.trains.makeEnvironment(location: StationCatalog.station(.twentyThirdStreet).location)
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Loading") {
     let environment = Scenario.loading.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("No trains") {
     let environment = Scenario.noTrains.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Offline") {
     let environment = Scenario.offline.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Offline with data") {
     let environment = Scenario.offlineWithData.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
 
 #Preview("Location denied") {
     let environment = Scenario.locationDenied.makeEnvironment()
-    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities)
+    MainView(model: environment.model, location: environment.location, liveActivities: environment.liveActivities, feedback: environment.feedback)
 }
