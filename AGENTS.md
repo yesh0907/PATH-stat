@@ -203,7 +203,8 @@ The app's "Embed Git Commit" build phase (last phase, always runs, app target ha
 ## CI & Devin Cloud
 
 The [CI workflow](https://github.com/yesh0907/PATH-stat/actions/workflows/ci.yml) runs
-PATHKit package tests and unsigned iOS Simulator tests on GitHub-hosted macOS. Devin Cloud
+PATHKit package tests and unsigned iOS Simulator tests on GitHub-hosted macOS (code PRs always
+run both in full; see `plan` for when they are skipped). Devin Cloud
 sessions must get a green CI run for the latest PR commit before merging. CI uses the stubbed
 UI scenarios with `PATH_LIVE` unset. Only local agents can run the live simulator against the
 real PATH feeds.
@@ -231,7 +232,12 @@ pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedbac
 
 Jobs (all in `.github/workflows/ci.yml`):
 
-- `plan` (Linux): the docs-only diff check below.
+- `plan` (Linux, `.github/scripts/plan-ci.sh`): emits `disposition` (`full` | `docs` | `reuse`),
+  `tree` (`git rev-parse HEAD^{tree}`) and, for `reuse`, `reuse_run_id`/`reuse_url`. The only job
+  with additional API read permissions (`actions`, `pull-requests`). The planner uses the
+  workflow token on pushes. Each API request has a 15-second timeout and errors select `full`.
+- `package` (`PATHKit package tests`, macOS) and `tests` run only for `full`. Both first check
+  that the checked-out tree equals the planned tree.
 - `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
   (`-parallel-testing-enabled NO`). CI prefers iPhone 18 Pro Max, iPhone 18 Pro, then iPhone 17
   for the layout checks. Each shard runs an unsigned `build-for-testing` into a local derived
@@ -240,9 +246,9 @@ Jobs (all in `.github/workflows/ci.yml`):
   avoid the multi-minute downloads observed when restoring Xcode compiler caches or transferring
   shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
-  - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
-    `testRemoveScreenshot`, `testMainScreenHasSingleFeedbackButton`)
-  - `feedback-b`: all of `FeedbackUITests` except those four (so new feedback tests land here)
+  - `feedback-a`: `testSendViaButton`, `testQueuedWithoutToken` and `testRemoveScreenshot`
+    from `FeedbackUITests`
+  - `feedback-b`: the remaining `FeedbackUITests` cases, including new cases
   - `galleries`: `WidgetGalleryUITests` + `LiveActivityGalleryUITests`
   - `other`: `-only-testing:PATHStatUITests` minus the `PATHStatUITests`, `FeedbackUITests`,
     `WidgetGalleryUITests` and `LiveActivityGalleryUITests` classes. It picks up interaction,
@@ -254,20 +260,50 @@ Jobs (all in `.github/workflows/ci.yml`):
   -skip-testing:PATHStatUITests/FeedbackUITests -skip-testing:PATHStatUITests/WidgetGalleryUITests
   -skip-testing:PATHStatUITests/LiveActivityGalleryUITests`.
   To rebalance the shards, edit the `selectors` in the matrix.
-  Each shard uploads `pathstat-results-<shard>` with the build and test bundles and attachments
-  on success or failure.
+  Each shard uploads `pathstat-results-<shard>` (3-day retention, `overwrite: true` so a
+  failed-job rerun replaces the same name) with the build and test bundles and attachments on
+  success or failure. The test step prints UTC timestamps for entering the shell and for starting
+  and finishing `xcodebuild`. Compare invocation time with Xcode's first
+  `Test Suite ... started at` line for launch overhead. The step returns Xcode's exit code.
 - `app` (Linux, name **`App build and simulator tests`** — the required check, keep the exact name):
-  runs after `plan` and `tests`, fails if `plan` or any shard failed, was cancelled or was
-  unexpectedly skipped, succeeds when the change is docs-only (tests correctly skipped), and
-  uploads `pathstat-test-results`.
+  runs after `plan`, `package` and `tests`. For `full` it fails unless the plan, package job and
+  every shard succeeded. For `docs` and `reuse` both macOS jobs must be skipped; `reuse` also
+  writes a link to the qualifying run into the check summary (only verified skips link).
+  For `full` it uploads `pathstat-test-results` (14 days, `overwrite: true`) even on failure, with
+  whatever shard artifacts exist. On an all-green run it then requires every shard's
+  `Build.xcresult`, `Tests.xcresult` and `attachments/manifest.json`. Keep `CI_SHARDS` equal to
+  the matrix. A failed-job rerun includes earlier shard artifacts from the same run ID. If any
+  expired (3 days), the gate fails and instructs you to re-run all jobs.
+  For a same-repo PR into `main` only, after validation it uploads `pathstat-tested-tree-<run_attempt>`
+  (14 days). Its `proof.json` records the tree, PR head and number, run ID and attempt,
+  repository, base and aggregate artifact ID.
+
+### Skipping CI after merge (`reuse`)
+
+On a push to `main`, `plan` verifies all of the following before reusing PR results.
+
+1. The push is a single non-forced update to `main` on the first-parent history
+   (`event.before` equals `HEAD^1`).
+2. GitHub associates the landed commit with exactly one matching merged PR from this repository
+   into `main`. A docs-only diff selects `docs` here.
+3. The latest `ci.yml` PR run for that PR's final head SHA finished successfully, and the latest
+   execution of every required job in that run passed. Earlier successful jobs can carry through a
+   failed-job rerun.
+4. That run has an unexpired proof artifact for its latest attempt and an unexpired aggregate.
+   The proof must match the push's tree, the PR, the head SHA, the run ID and attempt, the repository,
+   the base and the current aggregate ID. If the base moved and changed the tested tree,
+   the full suite runs.
+
+Direct pushes, multi-commit pushes, fork PRs and their merges, manual dispatches, missing or expired
+proof, and lookup errors run the full suite. Only same-repository PRs can publish proof. Each macOS
+job verifies its checkout against the planner's recorded tree before testing.
 
 GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0 (package job only),
 `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2.
 
-- Root Markdown files, `docs/` and `screenshots/` can change without running the simulator
-  steps. The gate still reports success and `PATHKit package tests` still runs. `plan` compares
-  the PR merge commit to its first parent and a main push to its previous commit. A manual
-  dispatch or an unavailable diff runs the full suite.
+- On same-repository PRs and their qualifying merges, changes confined to root Markdown files,
+  `docs/` and `screenshots/` skip both macOS jobs. The gate still reports success. The planner
+  compares the PR merge commit to its first parent and the landed commit to its previous main commit.
 - New PR runs cancel superseded runs on the same PR.
 
 ## Signing (hard rule)

@@ -17,15 +17,31 @@ defaults:
   run:
     shell: bash
 
+env:
+  CI_SHARDS: core feedback-a feedback-b galleries other
+
 jobs:
   package:
     name: PATHKit package tests
+    needs: plan
+    if: needs.plan.outputs.disposition == 'full'
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: &checkout actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The tested-tree proof is only meaningful if the tests ran on the tree the plan recorded.
+      - &tree
+        name: Verify planned tree
+        env:
+          PLANNED_TREE: ${{ needs.plan.outputs.tree }}
+        run: |
+          actual=$(git rev-parse 'HEAD^{tree}')
+          if [[ -z "$PLANNED_TREE" || "$actual" != "$PLANNED_TREE" ]]; then
+            echo "::error::Checked-out tree differs from the planned tree"; exit 1
+          fi
 
       - &xcode
         name: Select newest installed Xcode
@@ -62,55 +78,50 @@ jobs:
           unset PATH_LIVE
           swift test --package-path Packages/PATHKit
 
-  # Lightweight Linux job: decides whether the simulator suite must run (docs-only changes skip it).
+  # Lightweight Linux job: picks full / docs / reuse (see .github/scripts/plan-ci.sh).
+  #   docs   documentation-only diff: both macOS jobs are skipped
+  #   reuse  push to main of one merged same-repo PR whose CI already passed on this exact tree
+  #   full   everything else, including any API error or mismatch
+  # It is the only job with API read permissions (merged-PR, run and artifact lookups via gh).
   plan:
     name: Plan simulator run
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
-      run: ${{ steps.plan.outputs.run }}
+      disposition: ${{ steps.plan.outputs.disposition }}
+      tree: ${{ steps.plan.outputs.tree }}
+      reuse_run_id: ${{ steps.plan.outputs.reuse_run_id }}
+      reuse_url: ${{ steps.plan.outputs.reuse_url }}
     steps:
       - uses: *checkout
         with:
           persist-credentials: false
-          # Main pushes may contain more than one commit. Compare trees without fetching old blobs.
-          fetch-depth: 0
+          # Compare the checked-out tree to its first parent without fetching old blobs.
+          fetch-depth: 2
           filter: blob:none
 
       - name: Plan simulator run
         id: plan
         env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          base=
-          case "$EVENT" in
-            pull_request) base=HEAD^1 ;; # First parent of GitHub's PR merge commit
-            push) base=$BEFORE ;;
-          esac
-
-          run=true
-          # Run the suite if the diff is unavailable or includes any non-documentation path.
-          # Disable rename detection so moving a source file into docs still runs the suite.
-          if [[ -n "$base" ]] && git diff --quiet --no-renames "$base" HEAD -- . \
-            ':(top,glob,exclude)*.md' ':(top,exclude)docs/' ':(top,exclude)screenshots/'; then
-            run=false
-          fi
-          echo "Run simulator tests: $run"
-          echo "run=$run" >> "$GITHUB_OUTPUT"
+          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+        run: .github/scripts/plan-ci.sh
 
   # Five disjoint shards run concurrently, each on its own runner with its own simulator
   # (no parallel clones). Each builds locally: transferring the products cost more than compiling.
   # Selectors together cover everything:
   #   core       PATHKitTests + PATHStatUITests/PATHStatUITests
-  #   feedback-a four named FeedbackUITests cases
+  #   feedback-a three named FeedbackUITests cases
   #   feedback-b all other FeedbackUITests cases (including future ones)
   #   galleries  WidgetGalleryUITests + LiveActivityGalleryUITests
   #   other      every UI class except core, FeedbackUITests and the galleries (future classes land here)
   tests:
     name: Simulator tests (${{ matrix.shard }})
     needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: needs.plan.outputs.disposition == 'full'
     runs-on: xcode-27
     timeout-minutes: 30
     strategy:
@@ -126,14 +137,12 @@ jobs:
               -only-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
               -only-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
               -only-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
-              -only-testing:PATHStatUITests/FeedbackUITests/testMainScreenHasSingleFeedbackButton
           - shard: feedback-b
             selectors: >-
               -only-testing:PATHStatUITests/FeedbackUITests
               -skip-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
               -skip-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
               -skip-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
-              -skip-testing:PATHStatUITests/FeedbackUITests/testMainScreenHasSingleFeedbackButton
           - shard: galleries
             selectors: >-
               -only-testing:PATHStatUITests/WidgetGalleryUITests
@@ -149,6 +158,8 @@ jobs:
       - uses: *checkout
         with:
           persist-credentials: false
+
+      - *tree
 
       - *xcode
 
@@ -197,6 +208,7 @@ jobs:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
           SELECTORS: ${{ matrix.selectors }}
         run: |
+          printf 'Test shell entered: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           unset PATH_LIVE
           read -r -a selectors <<< "$SELECTORS"
           shopt -s nullglob
@@ -207,6 +219,9 @@ jobs:
           fi
           # -retry-tests-on-failure -test-iterations 2 only re-runs tests that failed (at most
           # one extra attempt each); it does not run the suite twice.
+          # Xcode's own "Test Suite ... started at" lines give the first-suite time; this is the start.
+          printf 'xcodebuild test-without-building start: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          status=0
           xcodebuild test-without-building -xctestrun "${test_runs[0]}" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -destination-timeout 120 \
@@ -215,7 +230,9 @@ jobs:
             -enableCodeCoverage NO \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
             "${selectors[@]}" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO || status=$?
+          printf 'xcodebuild test-without-building finished: %s (exit %s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$status"
+          exit "$status"
 
       - name: Export UI-test screenshots
         if: ${{ !cancelled() }}
@@ -233,52 +250,138 @@ jobs:
           name: pathstat-results-${{ matrix.shard }}
           path: ${{ runner.temp }}/pathstat-results/
           include-hidden-files: true
-          retention-days: 14
+          retention-days: 3
+          overwrite: true
           if-no-files-found: ignore
 
   # Required check. Keep this exact name: branch protection matches it.
   app:
     name: App build and simulator tests
-    needs: [plan, tests]
+    needs: [plan, package, tests]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check results
         env:
-          RUN: ${{ needs.plan.outputs.run }}
+          DISPOSITION: ${{ needs.plan.outputs.disposition }}
+          REUSE_RUN_ID: ${{ needs.plan.outputs.reuse_run_id }}
+          REUSE_URL: ${{ needs.plan.outputs.reuse_url }}
           PLAN: ${{ needs.plan.result }}
+          PACKAGE: ${{ needs.package.result }}
           TESTS: ${{ needs.tests.result }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "plan=$PLAN run=$RUN tests=$TESTS"
+          echo "plan=$PLAN disposition=$DISPOSITION package=$PACKAGE tests=$TESTS"
           if [[ "$PLAN" != success ]]; then
             echo "::error::Planning did not succeed ($PLAN)"; exit 1
           fi
-          if [[ "$RUN" == false ]]; then
-            if [[ "$TESTS" != skipped ]]; then
-              echo "::error::Docs-only run should skip the simulator tests"; exit 1
-            fi
-            echo "Docs-only change: simulator tests skipped"
-            exit 0
+          case "$DISPOSITION" in
+            docs | reuse)
+              if [[ "$PACKAGE" != skipped || "$TESTS" != skipped ]]; then
+                echo "::error::A $DISPOSITION run should skip both macOS jobs"; exit 1
+              fi
+              if [[ "$DISPOSITION" == docs ]]; then
+                echo "Docs-only change: package and simulator tests skipped"
+                exit 0
+              fi
+              # The planner verified this run; re-check the shape before linking to it.
+              if [[ ! "$REUSE_RUN_ID" =~ ^[1-9][0-9]{0,17}$ \
+                || "$REUSE_URL" != "$SERVER_URL/$REPO/actions/runs/$REUSE_RUN_ID" ]]; then
+                echo "::error::Reuse without a valid verified run"; exit 1
+              fi
+              echo "Tests reused from $REUSE_URL"
+              printf '### Tests reused\n\nThis commit has the same Git tree as the merged pull request, which passed the full suite in [run %s](%s).\n' \
+                "$REUSE_RUN_ID" "$REUSE_URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            full) ;;
+            *) echo "::error::Unknown disposition '$DISPOSITION'"; exit 1 ;;
+          esac
+          if [[ "$PACKAGE" != success ]]; then
+            echo "::error::PATHKit package tests did not succeed ($PACKAGE)"; exit 1
           fi
           if [[ "$TESTS" != success ]]; then
             echo "::error::Simulator build or tests did not succeed ($TESTS)"; exit 1
           fi
 
+      # Includes artifacts kept from earlier attempts, so a failed-job rerun still sees the
+      # shards that already passed (artifacts are overwritten by name when a shard reruns).
       - name: Collect results
-        if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
+        if: ${{ !cancelled() && needs.plan.outputs.disposition == 'full' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: pathstat-results-*
           path: ${{ runner.temp }}/pathstat-collected
 
       # Layout: pathstat-results-<shard>/{Build.xcresult,Tests.xcresult,attachments/} per shard.
+      # Always uploaded for a full run, including failures (partial results).
       - name: Upload test results and screenshots
-        if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
+        id: aggregate
+        if: ${{ !cancelled() && needs.plan.outputs.disposition == 'full' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pathstat-test-results
           path: ${{ runner.temp }}/pathstat-collected/
           include-hidden-files: true
           retention-days: 14
+          overwrite: true
           if-no-files-found: warn
+
+      # On an all-green full run every shard's bundles must be present. Shard artifacts expire
+      # after 3 days, so a late failed-job rerun can miss earlier shards: then say so and fail.
+      # Keep CI_SHARDS in sync with the tests matrix.
+      - name: Validate collected results
+        id: validate
+        if: ${{ !cancelled() && needs.plan.outputs.disposition == 'full' && needs.package.result == 'success' && needs.tests.result == 'success' }}
+        env:
+          AGGREGATE_ID: ${{ steps.aggregate.outputs.artifact-id }}
+          COLLECTED: ${{ runner.temp }}/pathstat-collected
+        run: |
+          missing=()
+          for shard in $CI_SHARDS; do
+            dir="$COLLECTED/pathstat-results-$shard"
+            for item in Build.xcresult Tests.xcresult attachments/manifest.json; do
+              [[ -e "$dir/$item" ]] || missing+=("$shard/$item")
+            done
+          done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Results incomplete (an earlier shard artifact may have expired). Re-run all jobs for a full run. Missing: ${missing[*]}"
+            exit 1
+          fi
+          if [[ ! "$AGGREGATE_ID" =~ ^[1-9][0-9]{0,17}$ ]]; then
+            echo "::error::Aggregate artifact upload did not produce an artifact ID"; exit 1
+          fi
+          echo "All shard results present: $CI_SHARDS"
+
+      # Proof for a later push to main: this PR's merge-ref tree passed everything. Same-repo PRs
+      # into main only; the planner of the main push verifies it against the API before trusting it.
+      - name: Write tested-tree proof
+        id: proof
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          TREE: ${{ needs.plan.outputs.tree }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          AGGREGATE_ID: ${{ steps.aggregate.outputs.artifact-id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pathstat-proof"
+          jq -n --arg tree "$TREE" --arg head "$HEAD_SHA" --arg repo "$REPO" \
+            --argjson pr "$PR" --argjson run "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
+            --argjson aggregate "$AGGREGATE_ID" \
+            '{schema: 1, tree: $tree, head_sha: $head, repository: $repo, base_ref: "main",
+              pull_request: $pr, run_id: $run, run_attempt: $attempt, aggregate_id: $aggregate}' \
+            > "$RUNNER_TEMP/pathstat-proof/proof.json"
+
+      - name: Upload tested-tree proof
+        if: ${{ !cancelled() && steps.proof.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pathstat-tested-tree-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pathstat-proof/proof.json
+          retention-days: 14
+          if-no-files-found: error
