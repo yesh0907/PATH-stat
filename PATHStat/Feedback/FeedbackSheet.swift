@@ -23,6 +23,7 @@ struct FeedbackSheet: View {
     @State private var category = FeedbackCategory.bug
     @State private var phase = Phase.compose
     @State private var showingMarkup = false
+    @State private var showingSettings = false
     @FocusState private var noteFocused: Bool
 
     init(center: FeedbackCenter, screenshot: Data?, context: FeedbackContext, dismiss: @escaping () -> Void) {
@@ -56,6 +57,9 @@ struct FeedbackSheet: View {
         }
         .interactiveDismissDisabled(isComposeDirty)
         .accessibilityIdentifier("feedback-sheet")
+        .sheet(isPresented: $showingSettings) {
+            FeedbackSettingsView(center: center)
+        }
         .fullScreenCover(isPresented: $showingMarkup) {
             if let image {
                 MarkupEditor(image: image) { edited in
@@ -111,6 +115,10 @@ struct FeedbackSheet: View {
             }
             Section {
                 shareLink(label: "Share instead")
+                Button { showingSettings = true } label: {
+                    Label("Feedback settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("feedback-settings-button")
             } footer: {
                 Text("Includes app version, device, screen, trip, feed status and recent errors. Never your location.")
             }

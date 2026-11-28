@@ -7,6 +7,17 @@ package `Packages/PATHKit` (including the screen's `@MainActor @Observable Board
 timeline logic is PATHKit's `WidgetTimeline`, and it shares data with the app through the App
 Group `group.com.yesh0907.PATHStat` (`TripStore.shared`, `SnapshotCache.shared`).
 
+The smart trip rule (`TripPlanner.smartTrip`): at/without Grove St → Grove St → 33rd St;
+everywhere else → home to Grove St (23rd St keeps the "Going home" preset name). The app
+remembers the nearest station of the last fix as `TripStore.lastNearestStation` in the App
+Group store — a station code only, never coordinates; the widget's "Smart (based on location)"
+mode (the default, raw value `nearest`) and the "Next PATH train" App Shortcut
+(`StartSmartTrainActivityIntent`) use it when they can't get a fix. The direction control's two
+quick picks come from `TripPlanner.quickDestinations` (at Grove: 33rd St + WTC; elsewhere
+Grove St + one more); the board height is fixed — hidden skeleton behind loading/no-trains/
+offline, invisible placeholder rows in the trains layout — so switching direction never moves
+the Favorites section.
+
 ## Verified commands
 
 Run from the repo root. Each was run and passed on Xcode 27.0 / Swift 6.4.
@@ -40,12 +51,14 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 ### UI-test scenarios and screenshots
 
 The app has deterministic modes for UI tests, previews and screenshots (`PATHStat/Scenario.swift`):
-`-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>` and optional
+`-UITestScenario <loading|trains|singleTrain|noTrains|offline|locationDenied|offlineWithData>` and optional
 `-UITestLocation <lat>,<lon>` (alone it implies `trains`) and `-UITestFeedback <sent|offline|noToken>`
 (see "Feedback pipeline"). Scenario mode uses a stub feed, a
 throwaway `TripStore` suite and fixed location state; it never creates `CLLocationManager`.
 `offlineWithData` starts from a 3-minute-old `initialSnapshot` and every fetch fails, so the
-`offline-banner` appears after the first refresh. UI coverage also includes switching trips from
+`offline-banner` appears after the first refresh. `singleTrain` is `trains` with one run per
+line, so Grove St → WTC has exactly one train and the `following-train-placeholder` /
+`later-trains-placeholder` messages show. UI coverage also includes switching trips from
 a favorite.
 `-WidgetGallery <live|stale|offline|unavailable|noTrains>` instead shows every widget family
 (shared views from `PATHStatWidgetUI/`, fixed `WidgetTimeline` entries from PATHKit's sample
@@ -64,8 +77,11 @@ Live Activity in scenario mode uses an in-memory `StubLiveActivityBackend`; add
 overrides the 60-minute duration in both backends, e.g. `-LiveActivityDuration 90` to watch it
 end. Background refresh (`BackgroundRefresh`) is live-only: any scenario/gallery argument
 disables it.
-UI tests find elements by accessibility identifier (`station-header`, `destination-<CODE>`,
-`favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `offline-banner`, `state-loading`,
+UI tests find elements by accessibility identifier (`station-header`, `direction-control`
+(the three-segment direction control: quick picks `destination-<CODE>` plus the
+`more-destinations` menu), `favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`,
+`following-train`, `following-train-placeholder`, `later-trains`, `later-trains-placeholder`,
+`offline-banner`, `state-loading`,
 `live-activity-button` (start / "Switch to this trip"), `live-activity-status`,
 `live-activity-stop`, `live-activity-error`, `live-activity-disabled`, `live-activity-settings`, ...);
 keep identifiers stable when editing views.
@@ -153,12 +169,13 @@ manual checks never call the real GitHub API and never use a real token.
   throws a network error, `noToken` has no token. Scenario mode adds a near-invisible 44×44
   `debug-simulate-shake` button ("Simulate shake", leading edge, own window above sheets) that
   posts the same `.pathStatDeviceDidShake` notification as a real shake.
-- **Identifiers**: `send-feedback-button`, `feedback-settings-button`, `feedback-pending`,
+- **Identifiers**: `send-feedback-button`, `feedback-settings-button` (a row in the feedback
+  sheet, no longer on the main screen), `feedback-pending`,
   `feedback-sheet`, `feedback-screenshot`, `feedback-markup`, `feedback-remove-screenshot`
   (also "Add screenshot back"), `feedback-note`, `feedback-category-<bug|design-nit|frustration|idea>`,
   `feedback-cancel`, `feedback-send`, `feedback-share`, `feedback-sending`, `feedback-sent`,
   `feedback-issue-link`, `feedback-queued`, `feedback-queued-reason`, `feedback-done`;
-  settings: `feedback-settings`, `feedback-token-field`, `feedback-token-save`,
+  settings (presented from the sheet or the `feedback-pending` line): `feedback-settings`, `feedback-token-field`, `feedback-token-save`,
   `feedback-token-test`, `feedback-token-test-result`, `feedback-token-remove`, `feedback-retry`.
 
 ```sh

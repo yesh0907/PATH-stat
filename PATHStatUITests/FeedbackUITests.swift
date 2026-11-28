@@ -150,6 +150,27 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(element(app, "feedback-sent").waitForExistence(timeout: timeout))
     }
 
+    @MainActor
+    func testMainScreenHasSingleFeedbackButton() {
+        let app = launch(feedback: "sent")
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "send-feedback-button").exists)
+        XCTAssertFalse(element(app, "send-feedback-footer").exists)
+        XCTAssertFalse(element(app, "feedback-settings-button").exists)
+    }
+
+    @MainActor
+    func testSettingsReachableFromSheet() {
+        let app = launch(feedback: "sent")
+        openViaButton(app)
+        let settingsButton = element(app, "feedback-settings-button")
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: timeout))
+        settingsButton.tap()
+        XCTAssertTrue(element(app, "feedback-settings").waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "feedback-token-field").exists)
+        attachScreenshot(app, "feedback-settings-from-sheet")
+    }
+
     // MARK: Helpers
 
     @MainActor

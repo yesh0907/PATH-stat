@@ -7,6 +7,15 @@ import PATHKit
 struct PATHShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
+            intent: StartSmartTrainActivityIntent(),
+            phrases: [
+                "\(.applicationName) next train",
+                "Next train with \(.applicationName)",
+            ],
+            shortTitle: "Next PATH train",
+            systemImageName: "tram.fill"
+        )
+        AppShortcut(
             intent: StartHomeTo33rdIntent(),
             phrases: [
                 "\(.applicationName) home to 33rd",

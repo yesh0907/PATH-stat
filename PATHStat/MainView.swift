@@ -55,16 +55,17 @@ struct MainView: View {
                         .accessibilityIdentifier("feedback-pending")
                     }
                 }
-                VStack(alignment: .leading, spacing: 10) {
-                    tripHeader
-                    DestinationChips(
-                        options: model.destinationOptions,
-                        selected: model.trip.destination,
-                        select: model.selectDestination
-                    )
-                }
+                DirectionControl(
+                    quick: model.quickDestinations,
+                    options: model.destinationOptions,
+                    selected: model.trip.destination,
+                    select: model.selectDestination
+                )
+                tripHeader
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    BoardContent(model: model, now: context.date)
+                    BoardContent(model: model, now: context.date, liveActivities: liveActivities) {
+                        startLiveActivity(model.trip)
+                    }
                 }
                 FavoritesSection(
                     favorites: model.favorites,
@@ -73,10 +74,6 @@ struct MainView: View {
                     remove: model.removeFavorite,
                     startLiveActivity: startLiveActivity
                 )
-                LiveActivitySection(controller: liveActivities, trip: model.trip) {
-                    startLiveActivity(model.trip)
-                }
-                FeedbackRow(center: feedback) { showingFeedbackSettings = true }
             }
             .padding()
         }
@@ -218,12 +215,131 @@ struct MainView: View {
     }
 }
 
+// MARK: - Direction control
+
+/// Three equal-width segments in one capsule track — the two quick destinations, then a menu
+/// of everything else. The accent pill slides between segments with no layout shift: same
+/// width, font weight and padding whether selected or not.
+private struct DirectionControl: View {
+    let quick: [StationCode]
+    let options: (termini: [DestinationOption], otherStops: [DestinationOption])
+    let selected: StationCode
+    let select: (StationCode) -> Void
+
+    @Namespace private var namespace
+
+    /// The menu segment shows the destination when it isn't one of the quick picks.
+    private var moreIsSelected: Bool { !quick.contains(selected) }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(quick, id: \.self) { code in
+                quickSegment(code)
+            }
+            moreSegment
+        }
+        .padding(4)
+        .background(Color(.tertiarySystemFill), in: Capsule())
+        .animation(.snappy, value: selected)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("direction-control")
+    }
+
+    @ViewBuilder
+    private func quickSegment(_ code: StationCode) -> some View {
+        let isSelected = selected == code
+        Button { select(code) } label: {
+            Group {
+                if code == TripPlanner.homeStation {
+                    Label("Home", systemImage: "house.fill")
+                } else {
+                    Text(StationCatalog.station(code).shortName)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .matchedGeometryEffect(id: "selected-pill", in: namespace)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(code == TripPlanner.homeStation
+            ? "Destination \(StationCatalog.station(code).shortName), home"
+            : "Destination \(StationCatalog.station(code).shortName)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("destination-\(code.rawValue)")
+    }
+
+    private var moreSegment: some View {
+        Menu {
+            ForEach(options.termini) { option in
+                menuButton(option)
+            }
+            if !options.termini.isEmpty, !options.otherStops.isEmpty {
+                Divider()
+            }
+            ForEach(options.otherStops) { option in
+                menuButton(option)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(moreIsSelected ? StationCatalog.station(selected).shortName : "More")
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .foregroundStyle(moreIsSelected ? Color.white : Color.primary)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background {
+                if moreIsSelected {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .matchedGeometryEffect(id: "selected-pill", in: namespace)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(moreIsSelected
+            ? "More destinations, selected \(StationCatalog.station(selected).shortName)"
+            : "More destinations")
+        .accessibilityIdentifier("more-destinations")
+    }
+
+    private func menuButton(_ option: DestinationOption) -> some View {
+        Button { select(option.destination) } label: {
+            if option.destination == selected {
+                Label(option.label, systemImage: "checkmark")
+            } else {
+                Text(option.label)
+            }
+        }
+    }
+}
+
 // MARK: - Board
 
 /// Loading / offline / no trains / trains, plus the offline banner and freshness footer.
+/// A hidden skeleton of the full trains layout sits behind the state area so loading,
+/// no-trains and offline reserve the same height and the Favorites section never moves.
 private struct BoardContent: View {
     let model: BoardModel
     let now: Date
+    let liveActivities: LiveActivityController
+    let startLiveActivity: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -231,49 +347,140 @@ private struct BoardContent: View {
                 if model.errorMessage != nil, let fetchedAt = model.lastFetchAt {
                     OfflineBanner(age: now.timeIntervalSince(fetchedAt))
                 }
-                if board.trains.isEmpty {
-                    NoTrainsState(destination: StationCatalog.station(model.trip.destination))
-                } else {
-                    trains(board)
+                ZStack(alignment: .top) {
+                    skeleton.hidden().accessibilityHidden(true)
+                    if board.trains.isEmpty {
+                        VStack(spacing: 12) {
+                            stripAloneCard
+                            NoTrainsState(destination: StationCatalog.station(model.trip.destination))
+                        }
+                    } else {
+                        trainsLayout(
+                            next: board.trains[0],
+                            following: board.trains.count > 1 ? board.trains[1] : nil,
+                            later: Array(board.trains.dropFirst(2).prefix(2)),
+                            skeleton: false
+                        )
+                    }
                 }
                 FreshnessFooter(board: board, now: now)
             } else if let error = model.errorMessage {
-                OfflineState(message: error, isRetrying: model.isLoading) {
-                    Task { await model.refresh() }
+                ZStack(alignment: .top) {
+                    skeleton.hidden().accessibilityHidden(true)
+                    VStack(spacing: 12) {
+                        stripAloneCard
+                        OfflineState(message: error, isRetrying: model.isLoading) {
+                            Task { await model.refresh() }
+                        }
+                    }
                 }
             } else {
-                ProgressView("Loading trains…")
-                    .frame(maxWidth: .infinity, minHeight: 160)
-                    .accessibilityIdentifier("state-loading")
+                ZStack(alignment: .top) {
+                    skeleton.hidden().accessibilityHidden(true)
+                    VStack(spacing: 12) {
+                        stripAloneCard
+                        ProgressView("Loading trains…")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                            .accessibilityIdentifier("state-loading")
+                    }
+                }
             }
         }
     }
 
+    /// The full trains layout with dummy trains: reserves the trains-state height.
+    private var skeleton: some View {
+        trainsLayout(next: .dummy(now: now), following: .dummy(now: now), later: [.dummy(now: now), .dummy(now: now)], skeleton: true)
+    }
+
+    /// Without a next card the strip is normally hidden; while an activity is active (or
+    /// erroring) it still renders alone so Stop stays reachable.
     @ViewBuilder
-    private func trains(_ board: DepartureBoard) -> some View {
-        if let next = board.next {
-            TrainCard(train: next, now: now, prominence: .next)
+    private var stripAloneCard: some View {
+        if liveActivities.activeTrip != nil || liveActivities.errorMessage != nil {
+            LiveActivityStrip(controller: liveActivities, trip: model.trip, start: startLiveActivity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        if let following = board.following {
-            TrainCard(train: following, now: now, prominence: .following)
+    }
+
+    /// Next card (with the Live Activity strip), following card or placeholder, Later box.
+    /// The skeleton renders the same layout with dummy trains and no accessibility content.
+    @ViewBuilder
+    private func trainsLayout(next: TrainArrival, following: TrainArrival?, later: [TrainArrival], skeleton: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 0) {
+                TrainInfo(train: next, now: now, prominence: .next)
+                    .padding(16)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(next.spokenDescription(prefix: "Next train", at: now))
+                    .accessibilityIdentifier(skeleton ? "skeleton-next-train" : "next-train")
+                Divider()
+                LiveActivityStrip(controller: liveActivities, trip: model.trip, start: startLiveActivity)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            if let following {
+                TrainCard(train: following, now: now, prominence: .following)
+            } else {
+                ZStack {
+                    TrainCard(train: .dummy(now: now), now: now, prominence: .following)
+                        .opacity(0)
+                        .accessibilityHidden(true)
+                    Text("Only one train in PATH's feed right now")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                        .accessibilityIdentifier(skeleton ? "skeleton-following-placeholder" : "following-train-placeholder")
+                }
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
+            laterBox(later, skeleton: skeleton)
         }
-        let later = Array(board.trains.dropFirst(2).prefix(2))
-        if !later.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Later")
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 4)
-                ForEach(Array(later.enumerated()), id: \.element.id) { index, train in
-                    if index > 0 { Divider() }
-                    LaterTrainRow(train: train, now: now, index: index)
+    }
+
+    /// Always exactly two row slots; missing rows are invisible same-size placeholders so the
+    /// box — and everything below it — never moves. Empty feed: a message across the box.
+    private func laterBox(_ later: [TrainArrival], skeleton: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Later")
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 4)
+            ForEach(0..<2, id: \.self) { index in
+                if index > 0 { Divider().opacity(index < later.count ? 1 : 0) }
+                if index < later.count {
+                    LaterTrainRow(train: later[index], now: now, index: index)
+                } else {
+                    LaterTrainRow(train: .dummy(now: now), now: now, index: index + 10)
+                        .opacity(0)
+                        .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            if later.isEmpty, !skeleton {
+                Text("No later trains in the feed yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 20)
+                    .accessibilityIdentifier("later-trains-placeholder")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(skeleton ? "skeleton-later-trains" : "later-trains")
     }
 }
 
@@ -388,82 +595,115 @@ private struct FreshnessFooter: View {
     }
 }
 
-// MARK: - Destination chips
+// MARK: - Live Activity strip
 
-private struct DestinationChips: View {
-    let options: (termini: [DestinationOption], otherStops: [DestinationOption])
-    let selected: StationCode
-    let select: (StationCode) -> Void
+/// The compact Live Activity row inside the next-train card: follow / on Lock Screen / switch,
+/// or the Settings hint when activities are off.
+struct LiveActivityStrip: View {
+    let controller: LiveActivityController
+    let trip: Trip
+    let start: () -> Void
 
-    /// Termini, plus the selected destination when it's an intermediate stop.
-    private var chips: [DestinationOption] {
-        options.termini + options.otherStops.filter { $0.destination == selected }
-    }
+    @ScaledMetric(relativeTo: .subheadline) private var rowHeight = 32
+    @Environment(\.openURL) private var openURL
+    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                chipRow
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { content }
+                VStack(alignment: .leading, spacing: 6) { content }
             }
-            .scrollClipDisabled()
-            // Keep the selected chip visible (e.g. "to Grove St" after the termini).
-            .onAppear { proxy.scrollTo(selected, anchor: .center) }
-            .onChange(of: chips) { _, _ in
-                withAnimation { proxy.scrollTo(selected, anchor: .center) }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: rowHeight)
+            if let error = controller.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("live-activity-error")
             }
-            .onChange(of: selected) { _, selected in
-                withAnimation { proxy.scrollTo(selected, anchor: .center) }
-            }
+        }
+        .onChange(of: controller.errorMessage, initial: true) { _, error in
+            if let error { feedback?.record("Live Activity: \(error)") }
         }
     }
 
-    private var chipRow: some View {
-        HStack(spacing: 8) {
-            ForEach(chips) { option in
-                chip(option).id(option.destination)
-            }
-            if !options.otherStops.isEmpty {
-                Menu {
-                    ForEach(options.otherStops) { option in
-                        Button { select(option.destination) } label: {
-                            if option.destination == selected {
-                                Label(option.label, systemImage: "checkmark")
-                            } else {
-                                Text(option.label)
-                            }
-                        }
+    @ViewBuilder
+    private var content: some View {
+        if let active = controller.activeTrip {
+            if active.sameRoute(as: trip) {
+                statusLabel {
+                    if let endsAt = controller.endsAt {
+                        Text("On Lock Screen · until \(Text(endsAt, style: .time))")
+                    } else {
+                        Text("On Lock Screen")
                     }
-                } label: {
-                    Label("More", systemImage: "ellipsis")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color(.tertiarySystemFill), in: Capsule())
                 }
-                .accessibilityLabel("More destinations")
-                .accessibilityIdentifier("more-destinations")
+                Spacer(minLength: 8)
+                stopButton
+            } else {
+                statusLabel { Text("On Lock Screen: \(active.title)") }
+                Spacer(minLength: 8)
+                Button(action: start) {
+                    Text("Switch")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Switch to this trip")
+                .accessibilityHint("Shows \(trip.title) on the Lock Screen instead.")
+                .accessibilityIdentifier("live-activity-button")
+                stopButton
             }
+        } else if controller.areActivitiesEnabled {
+            Button(action: start) {
+                Label("Follow on Lock Screen", systemImage: "platter.filled.bottom.iphone")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityHint("Shows the next trains on the Lock Screen and in the Dynamic Island.")
+            .accessibilityIdentifier("live-activity-button")
+            Spacer(minLength: 8)
+        } else {
+            Text("Lock Screen updates are off")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("live-activity-disabled")
+            Spacer(minLength: 8)
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("live-activity-settings")
         }
     }
 
-    private func chip(_ option: DestinationOption) -> some View {
-        let isSelected = option.destination == selected
-        return Button { select(option.destination) } label: {
-            Text(option.label)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.accentColor : Color(.tertiarySystemFill), in: Capsule())
+    private func statusLabel(_ text: () -> some View) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.green)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+            text()
+                .font(.subheadline)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Destination \(StationCatalog.station(option.destination).shortName)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("destination-\(option.destination.rawValue)")
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("live-activity-status")
+    }
+
+    private var stopButton: some View {
+        Button(role: .destructive) {
+            Task { await controller.stop() }
+        } label: {
+            Text("Stop")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityIdentifier("live-activity-stop")
     }
 }
 
-// MARK: - Banners and placeholders
+// MARK: - Banners
 
 private struct LocationDeniedBanner: View {
     let stationName: String
@@ -499,117 +739,6 @@ private struct LocationDeniedBanner: View {
         }
         .buttonStyle(.bordered)
         .accessibilityIdentifier("open-settings-button")
-    }
-}
-
-/// Start / stop the Live Activity for the current trip, or switch it from another trip.
-private struct LiveActivitySection: View {
-    let controller: LiveActivityController
-    let trip: Trip
-    let start: () -> Void
-
-    @Environment(\.openURL) private var openURL
-    @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let active = controller.activeTrip {
-                status(active)
-                if !active.sameRoute(as: trip) {
-                    startButton("Switch to this trip", hint: "Shows \(trip.title) on the Lock Screen instead.")
-                }
-                Button(role: .destructive) {
-                    Task { await controller.stop() }
-                } label: {
-                    Label("Stop Live Activity", systemImage: "stop.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("live-activity-stop")
-            } else if controller.areActivitiesEnabled {
-                startButton("Start Live Activity", hint: "Shows the next trains on the Lock Screen and in the Dynamic Island.")
-            } else {
-                Text("Live Activities are turned off for PATH Stat. Turn them on in Settings to see the next trains on your Lock Screen.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("live-activity-disabled")
-                Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("live-activity-settings")
-            }
-            if let error = controller.errorMessage {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("live-activity-error")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: controller.errorMessage, initial: true) { _, error in
-            if let error { feedback?.record("Live Activity: \(error)") }
-        }
-    }
-
-    private func startButton(_ title: String, hint: String) -> some View {
-        Button(action: start) {
-            Label(title, systemImage: "dot.radiowaves.left.and.right")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .accessibilityHint(hint)
-        .accessibilityIdentifier("live-activity-button")
-    }
-
-    @ViewBuilder
-    private func status(_ active: Trip) -> some View {
-        let isThisTrip = active.sameRoute(as: trip)
-        Group {
-            if let endsAt = controller.endsAt {
-                if isThisTrip {
-                    Text("Live on Lock Screen · until \(Text(endsAt, style: .time))")
-                } else {
-                    Text("Live on Lock Screen: \(active.title) · until \(Text(endsAt, style: .time))")
-                }
-            } else {
-                Text(isThisTrip ? "Live on Lock Screen" : "Live on Lock Screen: \(active.title)")
-            }
-        }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.green)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("live-activity-status")
-    }
-}
-
-// MARK: - Feedback
-
-/// Send feedback, feedback settings, and how many reports are waiting to send.
-private struct FeedbackRow: View {
-    let center: FeedbackCenter
-    let openSettings: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Button { center.present(trigger: .button) } label: {
-                    Label("Send feedback", systemImage: "exclamationmark.bubble")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Shake the phone to report from any screen.")
-                .accessibilityIdentifier("send-feedback-footer")
-                Button(action: openSettings) {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Feedback settings")
-                .accessibilityIdentifier("feedback-settings-button")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

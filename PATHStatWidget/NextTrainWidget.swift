@@ -23,7 +23,7 @@ struct NextTrainProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> NextTrainEntry {
         // Gallery / quick snapshot: sample data, no location or network.
-        let trip = WidgetTripResolver.resolve(configuration.choice, location: nil, lastTrip: TripStore.shared.lastTrip).trip
+        let trip = WidgetTripResolver.resolve(configuration.choice, location: nil, lastNearestStation: TripStore.shared.lastNearestStation).trip
         let now = Date.now
         let state = WidgetTimeline.make(trip: trip, snapshot: .sampleTrains(now: now), fetchFailed: false, now: now).entries[0]
         return NextTrainEntry(state: state)
@@ -31,7 +31,12 @@ struct NextTrainProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<NextTrainEntry> {
         let location = configuration.mode == .nearest ? await OneShotLocation.current() : nil
-        let resolution = WidgetTripResolver.resolve(configuration.choice, location: location, lastTrip: TripStore.shared.lastTrip)
+        let resolution = WidgetTripResolver.resolve(configuration.choice, location: location, lastNearestStation: TripStore.shared.lastNearestStation)
+        // Remember the fresh fix (a station code, never coordinates) for snapshots and
+        // smart-mode timelines that can't get a location of their own.
+        if let nearest = resolution.nearestStation {
+            TripStore.shared.lastNearestStation = nearest
+        }
 
         let (snapshot, fetchFailed) = await Self.loadSnapshot()
         let now = Date.now
@@ -80,7 +85,7 @@ struct NextTrainWidget: Widget {
             NextTrainWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Next PATH train")
-        .description("Live countdowns to the next PATH trains for a saved trip, any station, or the nearest station.")
+        .description("Live countdowns to the next PATH trains — smart, based on your location, or for a saved trip or any station.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
     }
 }
