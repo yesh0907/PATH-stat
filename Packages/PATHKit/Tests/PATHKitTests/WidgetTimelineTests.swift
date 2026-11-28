@@ -39,7 +39,10 @@ struct WidgetTimelineTests {
         // One train already arrived 30 s ago (still within grace); its arrival date is < now.
         let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([-30, 120], fetchedAgo: 60), fetchFailed: false, now: now)
         let offsets = result.entries.map { $0.date.timeIntervalSince(now) }
-        #expect(offsets == [0, -30 + grace, 120, 120 + grace, WidgetTimeline.staleAfter - 60])
+        // Minute boundaries of the 120 s train (60, 0) join the original dates. The staleAt
+        // entry is dropped: once every train has departed, it is visually identical to the
+        // previous empty stale entry.
+        #expect(offsets == [0, -30 + grace, 60, 120, 120 + grace])
         #expect(result.entries.allSatisfy { $0.date >= now })
         #expect(Set(result.entries.map(\.date)).count == result.entries.count)
     }
@@ -134,6 +137,86 @@ struct WidgetTimelineTests {
         let snap = PATHSnapshot(fetchedAt: now, boards: [.groveStreet: [.toNY: [wtc]]])
         #expect(WidgetTimeline.make(trip: trip, snapshot: snap, fetchFailed: false, now: now).entries[0].trains.isEmpty)
         #expect(WidgetTimeline.make(trip: .groveToWTC, snapshot: snap, fetchFailed: false, now: now).entries[0].trains == [wtc])
+    }
+
+
+    // MARK: minute-boundary countdowns
+
+    @Test func countdownRounding() {
+        let arrival = now.addingTimeInterval(1_000)
+        func check(_ remaining: TimeInterval, _ expected: MinutesCountdown) {
+            #expect(WidgetTimeline.countdown(to: now.addingTimeInterval(remaining), at: now) == expected)
+            _ = arrival
+        }
+        check(299, .minutes(4))
+        check(300, .minutes(4))
+        check(300.5, .minutes(5))
+        check(61, .minutes(1))
+        check(60, .due)
+        check(1, .due)
+        check(0, .now)
+        check(-10, .now)
+        #expect(MinutesCountdown.minutes(4).text == "in 4 min")
+        #expect(MinutesCountdown.due.text == "due")
+        #expect(MinutesCountdown.now.text == "now")
+        #expect(MinutesCountdown.minutes(4).compactText == "4m")
+        #expect(MinutesCountdown.due.compactText == "due")
+        #expect(MinutesCountdown.now.compactText == "now")
+    }
+
+    @Test func minuteBoundaryEntriesTickTheCountdownDown() throws {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([300.5]), fetchFailed: false, now: now)
+        for offset in [0.5, 60.5, 120.5, 180.5, 240.5] {
+            #expect(entry(at: offset, in: result.entries) != nil, "missing entry at \(offset)")
+        }
+        // The first train's countdown over consecutive entries before its departure.
+        func rank(_ countdown: MinutesCountdown) -> Int {
+            switch countdown {
+            case .minutes(let minutes): minutes + 1
+            case .due: 1
+            case .now: 0
+            }
+        }
+        var sequence: [Int] = []
+        for entry in result.entries {
+            guard let train = entry.trains.first, train.arrival == now.addingTimeInterval(300.5) else { continue }
+            if train.arrival.addingTimeInterval(grace) <= entry.date { continue }
+            let value = rank(entry.countdown(for: train))
+            if sequence.last != value { sequence.append(value) }
+        }
+        #expect(sequence == [6, 5, 4, 3, 2, 1, 0])  // minutes(5)…minutes(1), due, now
+    }
+
+    @Test func noTwoConsecutiveEntriesAreVisuallyEqual() {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([150, 400]), fetchFailed: false, now: now)
+        for (previous, next) in zip(result.entries, result.entries.dropFirst()) {
+            let same = previous.status == next.status
+                && previous.trains == next.trains
+                && zip(previous.trains, next.trains).allSatisfy { previous.countdown(for: $0) == next.countdown(for: $1) }
+            #expect(!same, "entries at \(previous.date) and \(next.date) are visually identical")
+        }
+    }
+
+    @Test func secondTrainBoundariesAppear() {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([150, 400]), fetchFailed: false, now: now)
+        for k in 1...6 {
+            #expect(entry(at: 400 - TimeInterval(k) * 60, in: result.entries) != nil, "missing boundary 400-\(k)*60")
+        }
+    }
+
+    @Test func countdownIsValidForEachEntrysWholeSpan() {
+        let result = WidgetTimeline.make(trip: trip, snapshot: snapshot([37, 95, 412, 777], fetchedAgo: 30), fetchFailed: false, now: now)
+        for (index, entry) in result.entries.enumerated() {
+            let spanEnd = index + 1 < result.entries.count
+                ? result.entries[index + 1].date.addingTimeInterval(-0.001)
+                : entry.date
+            for train in entry.trains {
+                let atStart = entry.countdown(for: train)
+                #expect(atStart == WidgetTimeline.countdown(to: train.arrival, at: entry.date))
+                #expect(atStart == WidgetTimeline.countdown(to: train.arrival, at: spanEnd),
+                        "countdown of train at \(train.arrival) changes within the span starting \(entry.date)")
+            }
+        }
     }
 
     // MARK: reloadAt

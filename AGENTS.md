@@ -62,7 +62,7 @@ line, so Grove St → WTC has exactly one train and the `following-train-placeho
 `later-trains-placeholder` messages show. UI coverage also includes switching trips from
 a favorite. `scheduleFallback` shows Grove St → WTC with an empty realtime board and a
 sample timetable; `noTrains` still has no timetable.
-`-WidgetGallery <live|stale|offline|unavailable|noTrains>` instead shows every widget family
+`-WidgetGallery <live|due|stale|offline|unavailable|noTrains>` instead shows every widget family
 (shared views from `PATHStatWidgetUI/`, fixed `WidgetTimeline` entries from PATHKit's sample
 snapshots) on one screen, identifier `widget-gallery` (tiles: `widget-systemSmall`, ...).
 `WidgetGalleryUITests` attaches `widget-gallery-<state>`. Scenario and gallery modes never
@@ -308,8 +308,11 @@ GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `acti
 - Anything that touches the network belongs in `LiveFeedTests` (gated on `PATH_LIVE=1`).
 - UI tests are XCTest (required for XCUIApplication) and must use scenario mode, never the live feed.
 - Put pure logic (trip planning, filtering, persistence) in PATHKit with tests; keep the app thin.
-- Widget countdowns must stay correct without reloads: `Text(timerInterval:countsDown:)`,
-  `Text(date, style: .time/.relative)`, never a precomputed minute count or `.timer` style.
+- The widget headline is the arrival clock time; the countdown is whole minutes rounded down
+  from `WidgetTimeline.countdown(to:at:)` ("in N min" / "due" ≤ 60 s / "now"), kept correct by
+  timeline entries at each train's minute boundaries (`arrival − k·60 s`, deduplicated) —
+  entries within one timeline cost no reload budget; never m:ss or `.timer` style in the widget
+  (the Live Activity keeps its m:ss `Text(timerInterval:)`).
 - ActivityKit calls live only in `PATHStatWidgetUI/TrainActivities.swift`; Live Activity
   content is planned by PATHKit's `TrainActivityPlanner`. The intents in
   `PATHStatWidgetUI/TrainActivityIntents.swift` are `LiveActivityIntent`s compiled into both

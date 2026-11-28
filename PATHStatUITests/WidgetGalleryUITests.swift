@@ -9,7 +9,17 @@ final class WidgetGalleryUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    @MainActor func testLive() { check("live", expecting: "Updated") }
+    @MainActor func testLive() {
+        check("live", expecting: "Updated")
+        // The small widget's combined rows label reads "… arrives 8:42 PM, in 4 min".
+        let app = XCUIApplication()
+        let small = app.descendants(matching: .any)["widget-systemSmall"].firstMatch
+        let rows = small.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "in ", ":")).firstMatch
+        XCTAssertTrue(rows.exists, "systemSmall rows label should include a clock time and a minutes countdown")
+    }
+    @MainActor func testDue() {
+        check("due", expecting: "due")
+    }
     @MainActor func testStale() { check("stale", expecting: "Updated") }
     @MainActor func testOffline() { check("offline", expecting: "Can't update") }
     @MainActor func testUnavailable() { check("unavailable", expecting: "Can't reach PATH") }

@@ -2,7 +2,7 @@ import PATHKit
 import SwiftUI
 import WidgetKit
 
-/// `-WidgetGallery <live|stale|offline|unavailable|noTrains>`: renders the shared widget views
+/// `-WidgetGallery <live|due|stale|offline|unavailable|noTrains>`: renders the shared widget views
 /// for every family at widget sizes, from fixed `WidgetTimeline` entries, for screenshots.
 struct WidgetGalleryView: View {
     let state: WidgetSampleState
@@ -79,6 +79,7 @@ struct WidgetGalleryView: View {
 }
 
 #Preview("Live") { WidgetGalleryView(state: .live) }
+#Preview("Due") { WidgetGalleryView(state: .due) }
 #Preview("Stale") { WidgetGalleryView(state: .stale) }
 #Preview("Offline") { WidgetGalleryView(state: .offline) }
 #Preview("Unavailable") { WidgetGalleryView(state: .unavailable) }
