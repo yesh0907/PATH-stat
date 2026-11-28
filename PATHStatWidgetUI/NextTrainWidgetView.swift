@@ -5,8 +5,10 @@ import WidgetKit
 /// The "Next PATH train" widget for one entry, shared by the widget extension and the app's
 /// `-WidgetGallery` screenshot mode. `family` is explicit so the app can render every size.
 ///
-/// Countdowns use `Text(timerInterval:countsDown:)` and clock times use `Text(_:style: .time)`,
-/// so they stay correct between timeline entries without reloads.
+/// The headline is the next train's arrival clock time; the countdown is whole minutes rounded
+/// down ("in N min" / "due" / "now") from `WidgetTimeline.countdown(to:at:)`. Timeline entries
+/// at every train's minute boundaries keep it correct between reloads — no m:ss or `.timer`
+/// style anywhere in the widget (the Live Activity keeps those).
 struct NextTrainWidgetView: View {
     let state: WidgetEntryState
     let family: WidgetFamily
@@ -42,27 +44,48 @@ extension WidgetEntryState {
 extension TrainArrival {
     var widgetHeadsign: String { headsign.isEmpty ? "PATH train" : headsign }
 
-    /// "Train to 33rd Street, Journal Square–33rd St line, arrives 8:42 PM" (no countdown:
-    /// a spoken countdown would be frozen at the entry date).
+    /// "Train to 33rd Street, Journal Square–33rd St line, arrives 8:42 PM" (no countdown: the
+    /// Live Activity, which uses this, speaks clock times only).
     var widgetAccessibilityLabel: String {
         "Train to \(widgetHeadsign), \(line?.displayName ?? "PATH") line, arrives \(arrival.formatted(date: .omitted, time: .shortened))"
     }
 }
 
-/// m:ss countdown to `train.arrival` that ticks on its own; "Due" once the entry's date is at
-/// or past the arrival (the timeline has an entry at each arrival).
-struct WidgetCountdown: View {
-    let train: TrainArrival
-    let date: Date
-
-    var body: some View {
-        if train.arrival <= date {
-            Text("Due")
-        } else {
-            Text(timerInterval: date...train.arrival, countsDown: true)
-                .monospacedDigit()
-        }
+extension WidgetEntryState {
+    /// "Train to 33rd Street, Journal Square–33rd St line, arrives 8:42 PM, in 4 min" — the
+    /// countdown is safe to speak because timeline entries update at every minute boundary.
+    func widgetAccessibilityLabel(for train: TrainArrival) -> String {
+        "Train to \(train.widgetHeadsign), \(train.line?.displayName ?? "PATH") line, arrives \(train.arrival.formatted(date: .omitted, time: .shortened)), \(countdown(for: train).text)"
     }
+}
+
+/// "3:07 PM" as concatenated attributed runs, with the AM/PM run in `periodFont` so it reads
+/// smaller. 24-hour locales have no AM/PM run, so nothing shrinks.
+func widgetClockText(_ date: Date, periodFont: Font) -> Text {
+    let attributed = date.formatted(.dateTime.hour().minute().attributed)
+    var result = Text(verbatim: "")
+    for run in attributed.runs {
+        var part = Text(String(attributed[run.range].characters))
+        if run.foundation.dateField == .amPM {
+            part = part.font(periodFont)
+        }
+        result = result + part
+    }
+    return result
+}
+
+/// "3:07" — clock time with the AM/PM run removed, for the circular widget's tiny centre.
+func widgetClockStringWithoutPeriod(_ date: Date) -> String {
+    let attributed = date.formatted(.dateTime.hour().minute().attributed)
+    var ranges: [Range<AttributedString.Index>] = []
+    for run in attributed.runs where run.foundation.dateField == .amPM {
+        ranges.append(run.range)
+    }
+    var copy = attributed
+    for range in ranges.reversed() {
+        copy.removeSubrange(range)
+    }
+    return String(copy.characters).trimmingCharacters(in: .whitespaces)
 }
 
 /// "Updated 3 min ago", orange when stale; "Can't update" when offline.
@@ -177,10 +200,13 @@ struct SmallWidgetView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    WidgetCountdown(train: next, date: state.date)
+                    widgetClockText(next.arrival, periodFont: .system(size: 16, weight: .semibold, design: .rounded))
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
+                    Text(state.countdown(for: next).text)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
                     if let following = state.following {
                         Text("then \(Text(following.arrival, style: .time))")
                             .font(.caption)
@@ -200,7 +226,7 @@ struct SmallWidgetView: View {
     }
 
     private var rowsLabel: String {
-        state.trains.prefix(2).map(\.widgetAccessibilityLabel).joined(separator: "; ")
+        state.trains.prefix(2).map { state.widgetAccessibilityLabel(for: $0) }.joined(separator: "; ")
     }
 }
 
@@ -243,18 +269,21 @@ struct MediumWidgetView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Spacer(minLength: 4)
-            Text(train.arrival, style: .time)
+            Text(state.countdown(for: train).text)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            WidgetCountdown(train: train, date: state.date)
+                .lineLimit(1)
+                .frame(width: 60, alignment: .trailing)
+            widgetClockText(train.arrival, periodFont: .caption2.weight(.semibold))
                 .font(.subheadline.weight(.bold))
+                .monospacedDigit()
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: 78, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(train.widgetAccessibilityLabel)
+        .accessibilityLabel(state.widgetAccessibilityLabel(for: train))
     }
 }
 
@@ -270,8 +299,7 @@ struct RectangularWidgetView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             if let next = state.next {
-                Text("\(countdownText(next)) \(next.widgetHeadsign)")
-                    .font(.caption)
+                line2(next)
                     .lineLimit(1)
                 if state.status == .stale || state.status == .offline {
                     statusLine
@@ -301,15 +329,12 @@ struct RectangularWidgetView: View {
         }
     }
 
-    // One interpolated Text: a countdown/headsign HStack renders blank in WidgetKit's renderer.
-    private func countdownText(_ next: TrainArrival) -> Text {
-        if next.arrival <= state.date {
-            Text("Due").font(.body.weight(.semibold))
-        } else {
-            Text(timerInterval: state.date...next.arrival, countsDown: true)
-                .font(.body.weight(.semibold))
-                .monospacedDigit()
-        }
+    // One interpolated Text: a clock-time/countdown HStack renders blank in WidgetKit's renderer.
+    private func line2(_ next: TrainArrival) -> Text {
+        widgetClockText(next.arrival, periodFont: .caption)
+            .font(.body.weight(.semibold))
+            + Text(" · ")
+            + Text(state.countdown(for: next).text).font(.caption)
     }
 
     @ViewBuilder
@@ -331,7 +356,7 @@ struct RectangularWidgetView: View {
             }
             return "\(state.shortTitle), \(empty)"
         }
-        return ([state.shortTitle] + state.trains.prefix(2).map(\.widgetAccessibilityLabel)).joined(separator: "; ")
+        return ([state.shortTitle] + state.trains.prefix(2).map { state.widgetAccessibilityLabel(for: $0) }).joined(separator: "; ")
     }
 }
 
@@ -340,11 +365,9 @@ struct InlineWidgetView: View {
 
     var body: some View {
         if let next = state.next {
-            if next.arrival <= state.date {
-                Text("\(state.destinationName) · Due")
-            } else {
-                Text("\(state.destinationName) · \(Text(timerInterval: state.date...next.arrival, countsDown: true))")
-            }
+            Text("\(state.destinationName) · ")
+                + widgetClockText(next.arrival, periodFont: .caption)
+                + Text(" · \(state.countdown(for: next).text)")
         } else if state.status == .unavailable {
             Text("Can't reach PATH")
         } else if state.status == .stale || state.status == .offline {
@@ -376,22 +399,27 @@ struct CircularWidgetView: View {
                     .progressViewStyle(.circular)
                 }
             }
-            .accessibilityLabel(next.widgetAccessibilityLabel)
+            .accessibilityLabel(state.widgetAccessibilityLabel(for: next))
         } else {
             ZStack {
                 Circle().strokeBorder(.secondary, lineWidth: 3)
-                Text(state.next == nil ? "—" : "Due")
+                Text(state.next == nil ? "—" : "now")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .accessibilityLabel(state.next == nil ? "No trains" : "Train due")
+            .accessibilityLabel(state.next == nil ? "No trains" : "Train arrived")
         }
     }
 
     private func label(_ next: TrainArrival) -> some View {
-        Text(timerInterval: state.date...next.arrival, countsDown: true)
-            .font(.system(size: 12, weight: .semibold).monospacedDigit())
-            .multilineTextAlignment(.center)
-            .minimumScaleFactor(0.6)
-            .padding(.horizontal, 6)
+        VStack(spacing: 0) {
+            Text(widgetClockStringWithoutPeriod(next.arrival))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            Text(state.countdown(for: next).compactText)
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .minimumScaleFactor(0.6)
+        .padding(.horizontal, 6)
     }
 }

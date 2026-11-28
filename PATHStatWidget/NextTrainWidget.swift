@@ -85,7 +85,7 @@ struct NextTrainWidget: Widget {
             NextTrainWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Next PATH train")
-        .description("Live countdowns to the next PATH trains — smart, based on your location, or for a saved trip or any station.")
+        .description("Next PATH arrival times with a minutes countdown — smart, based on your location, or for a saved trip or any station.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
     }
 }
