@@ -261,6 +261,7 @@ private struct DirectionControl: View {
             .minimumScaleFactor(0.7)
             .foregroundStyle(isSelected ? Color.white : Color.primary)
             .padding(.vertical, 8)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity)
             .background {
                 if isSelected {
@@ -302,6 +303,7 @@ private struct DirectionControl: View {
             .minimumScaleFactor(0.7)
             .foregroundStyle(moreIsSelected ? Color.white : Color.primary)
             .padding(.vertical, 8)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity)
             .background {
                 if moreIsSelected {
@@ -419,7 +421,7 @@ private struct BoardContent: View {
                     .accessibilityLabel(next.spokenDescription(prefix: "Next train", at: now))
                     .accessibilityIdentifier(skeleton ? "skeleton-next-train" : "next-train")
                 Divider()
-                LiveActivityStrip(controller: liveActivities, trip: model.trip, start: startLiveActivity)
+                LiveActivityStrip(controller: liveActivities, trip: model.trip, start: startLiveActivity, recordsErrors: !skeleton)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
             }
@@ -431,8 +433,7 @@ private struct BoardContent: View {
             } else {
                 ZStack {
                     TrainCard(train: .dummy(now: now), now: now, prominence: .following)
-                        .opacity(0)
-                        .accessibilityHidden(true)
+                        .hidden()
                     Text("Only one train in PATH's feed right now")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -459,11 +460,14 @@ private struct BoardContent: View {
             ForEach(0..<2, id: \.self) { index in
                 if index > 0 { Divider().opacity(index < later.count ? 1 : 0) }
                 if index < later.count {
-                    LaterTrainRow(train: later[index], now: now, index: index)
+                    ZStack(alignment: .topLeading) {
+                        LaterTrainRow(train: .dummy(now: now), now: now, index: index + 20)
+                            .hidden()
+                        LaterTrainRow(train: later[index], now: now, index: index)
+                    }
                 } else {
                     LaterTrainRow(train: .dummy(now: now), now: now, index: index + 10)
-                        .opacity(0)
-                        .accessibilityHidden(true)
+                        .hidden()
                 }
             }
         }
@@ -603,16 +607,32 @@ struct LiveActivityStrip: View {
     let controller: LiveActivityController
     let trip: Trip
     let start: () -> Void
+    var recordsErrors = true
 
     @ScaledMetric(relativeTo: .subheadline) private var rowHeight = 32
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
     @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { content }
-                VStack(alignment: .leading, spacing: 6) { content }
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 6) {
+                        leading
+                        HStack(spacing: 8) { trailing }
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        leading
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 8)
+                        HStack(spacing: 6) { trailing }
+                            .fixedSize()
+                            .layoutPriority(1)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: rowHeight)
@@ -624,12 +644,12 @@ struct LiveActivityStrip: View {
             }
         }
         .onChange(of: controller.errorMessage, initial: true) { _, error in
-            if let error { feedback?.record("Live Activity: \(error)") }
+            if recordsErrors, let error { feedback?.record("Live Activity: \(error)") }
         }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var leading: some View {
         if let active = controller.activeTrip {
             if active.sameRoute(as: trip) {
                 statusLabel {
@@ -639,11 +659,32 @@ struct LiveActivityStrip: View {
                         Text("On Lock Screen")
                     }
                 }
-                Spacer(minLength: 8)
-                stopButton
             } else {
                 statusLabel { Text("On Lock Screen: \(active.title)") }
-                Spacer(minLength: 8)
+            }
+        } else if controller.areActivitiesEnabled {
+            Button(action: start) {
+                Label("Follow on Lock Screen", systemImage: "platter.filled.bottom.iphone")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityHint("Shows the next trains on the Lock Screen and in the Dynamic Island.")
+            .accessibilityIdentifier("live-activity-button")
+        } else {
+            Text("Lock Screen updates are off")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("live-activity-disabled")
+        }
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if let active = controller.activeTrip {
+            if active.sameRoute(as: trip) {
+                stopButton
+            } else {
                 Button(action: start) {
                     Text("Switch")
                 }
@@ -655,21 +696,8 @@ struct LiveActivityStrip: View {
                 stopButton
             }
         } else if controller.areActivitiesEnabled {
-            Button(action: start) {
-                Label("Follow on Lock Screen", systemImage: "platter.filled.bottom.iphone")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(Color.accentColor)
-            .accessibilityHint("Shows the next trains on the Lock Screen and in the Dynamic Island.")
-            .accessibilityIdentifier("live-activity-button")
-            Spacer(minLength: 8)
+            EmptyView()
         } else {
-            Text("Lock Screen updates are off")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("live-activity-disabled")
-            Spacer(minLength: 8)
             Button("Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             }

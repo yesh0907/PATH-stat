@@ -1,7 +1,7 @@
 import CoreLocation
 import os
 
-/// One location fix for the widget's "Nearest station" mode: `requestLocation()` at 100 m
+/// One location fix for the widget's "Smart (based on location)" mode: `requestLocation()` at 100 m
 /// accuracy, only when already authorized, with a timeout. Never logs coordinates.
 @MainActor
 final class OneShotLocation: NSObject, CLLocationManagerDelegate {

@@ -11,8 +11,9 @@ The smart trip rule (`TripPlanner.smartTrip`): at/without Grove St → Grove St 
 everywhere else → home to Grove St (23rd St keeps the "Going home" preset name). The app
 remembers the nearest station of the last fix as `TripStore.lastNearestStation` in the App
 Group store — a station code only, never coordinates; the widget's "Smart (based on location)"
-mode (the default, raw value `nearest`) and the "Next PATH train" App Shortcut
-(`StartSmartTrainActivityIntent`) use it when they can't get a fix. The direction control's two
+mode (the default, raw value `nearest`) uses it when it can't get a fix, and the
+"Next PATH train" App Shortcut (`StartSmartTrainActivityIntent`) always uses it (an intent
+doesn't request a fix). The direction control's two
 quick picks come from `TripPlanner.quickDestinations` (at Grove: 33rd St + WTC; elsewhere
 Grove St + one more); the board height is fixed — hidden skeleton behind loading/no-trains/
 offline, invisible placeholder rows in the trains layout — so switching direction never moves
@@ -174,7 +175,8 @@ manual checks never call the real GitHub API and never use a real token.
   `feedback-sheet`, `feedback-screenshot`, `feedback-markup`, `feedback-remove-screenshot`
   (also "Add screenshot back"), `feedback-note`, `feedback-category-<bug|design-nit|frustration|idea>`,
   `feedback-cancel`, `feedback-send`, `feedback-share`, `feedback-sending`, `feedback-sent`,
-  `feedback-issue-link`, `feedback-queued`, `feedback-queued-reason`, `feedback-done`;
+  `feedback-issue-link`, `feedback-queued`, `feedback-queued-reason`, `feedback-queued-settings`,
+  `feedback-done`;
   settings (presented from the sheet or the `feedback-pending` line): `feedback-settings`, `feedback-token-field`, `feedback-token-save`,
   `feedback-token-test`, `feedback-token-test-result`, `feedback-token-remove`, `feedback-retry`.
 

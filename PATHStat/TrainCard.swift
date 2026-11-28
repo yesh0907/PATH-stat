@@ -91,13 +91,18 @@ struct TrainCard: View {
     let prominence: Prominence
 
     var body: some View {
-        TrainInfo(train: train, now: now, prominence: prominence)
-            .padding(prominence == .next ? 16 : 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(train.spokenDescription(prefix: prominence.title, at: now))
-            .accessibilityIdentifier(prominence.identifier)
+        // A scaled-down headsign would otherwise make the card shorter than the skeleton's.
+        ZStack(alignment: .topLeading) {
+            TrainInfo(train: .dummy(now: now), now: now, prominence: prominence)
+                .hidden()
+            TrainInfo(train: train, now: now, prominence: prominence)
+        }
+        .padding(prominence == .next ? 16 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(train.spokenDescription(prefix: prominence.title, at: now))
+        .accessibilityIdentifier(prominence.identifier)
     }
 }
 

@@ -5,7 +5,7 @@ import WidgetKit
 
 struct NextTrainEntry: TimelineEntry {
     let state: WidgetEntryState
-    /// "Nearest station" was configured but no location fix was available.
+    /// "Smart (based on location)" was configured but no location fix was available.
     var locationUnavailable = false
 
     var date: Date { state.date }
