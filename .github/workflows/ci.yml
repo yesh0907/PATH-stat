@@ -155,13 +155,16 @@ jobs:
       - name: Select iPhone simulator
         id: simulator
         run: |
+          # Keep layout checks on iPhone models already verified by this suite.
           simulator=$(xcrun simctl list --json | jq -er '
             ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
-              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
-            | first($runtimes[] as $runtime | .devices[$runtime.identifier][]?
-                | select(.isAvailable and (.name | startswith("iPhone ")))
+              | sort_by((.version | split(".") | map(tonumber)), (.buildversion | test("[0-9]$")))
+              | reverse) as $runtimes
+            | first(("iPhone 18 Pro Max", "iPhone 18 Pro", "iPhone 17") as $model
+                | $runtimes[] as $runtime | .devices[$runtime.identifier][]?
+                | select(.isAvailable and .name == $model)
                 | [.udid, .name, $runtime.version, $runtime.buildversion] | @tsv)
-              // error("No available iPhone simulator")
+              // error("No available iPhone 18 Pro Max, iPhone 18 Pro, or iPhone 17 simulator")
           ')
           IFS=$'\t' read -r udid name version build <<< "$simulator"
           echo "Testing on $name (iOS $version, $build)"

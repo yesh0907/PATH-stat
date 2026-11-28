@@ -224,10 +224,11 @@ Jobs (all in `.github/workflows/ci.yml`):
 
 - `plan` (Linux): the docs-only diff check below.
 - `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
-  (`-parallel-testing-enabled NO`). Each runs an unsigned `build-for-testing` into a local
-  derived data path, then `simctl bootstatus -b` to boot and wait for the simulator.
-  `test-without-building` uses the generated `.xctestrun` and retries failed tests once. Local builds avoid
-  the multi-minute downloads observed when restoring Xcode compiler caches or transferring
+  (`-parallel-testing-enabled NO`). CI prefers iPhone 18 Pro Max, iPhone 18 Pro, then iPhone 17
+  for the layout checks. Each shard runs an unsigned `build-for-testing` into a local derived
+  data path, then uses `simctl bootstatus -b` to boot and wait for the simulator.
+  `test-without-building` uses the generated `.xctestrun` and retries failed tests once. Local builds
+  avoid the multi-minute downloads observed when restoring Xcode compiler caches or transferring
   shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
   - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
