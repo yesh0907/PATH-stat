@@ -415,9 +415,9 @@ private struct BoardContent: View {
     private func trainsLayout(next: TrainArrival, following: TrainArrival?, later: [TrainArrival], skeleton: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
+                ReferenceSized {
                     TrainInfo(train: .dummy(now: now), now: now, prominence: .next)
-                        .hidden()
+                } content: {
                     TrainInfo(train: next, now: now, prominence: .next)
                 }
                 .padding(16)
@@ -464,9 +464,9 @@ private struct BoardContent: View {
             ForEach(0..<2, id: \.self) { index in
                 if index > 0 { Divider().opacity(index < later.count ? 1 : 0) }
                 if index < later.count {
-                    ZStack(alignment: .topLeading) {
+                    ReferenceSized {
                         LaterTrainRow(train: .dummy(now: now), now: now, index: index + 20)
-                            .hidden()
+                    } content: {
                         LaterTrainRow(train: later[index], now: now, index: index)
                     }
                 } else {

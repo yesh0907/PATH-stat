@@ -20,6 +20,28 @@ enum TrainCardProminence {
     var identifier: String { self == .next ? "next-train" : "following-train" }
 }
 
+/// Lays `content` over a hidden `reference`. At standard text sizes it takes exactly the
+/// reference's size, so a train whose text lays out a point taller or shorter (e.g. a
+/// scaled-down headsign) can't change the card height. At accessibility sizes the content
+/// may grow (headsigns wrap to up to 3 lines).
+struct ReferenceSized<Reference: View, Content: View>: View {
+    @ViewBuilder let reference: Reference
+    @ViewBuilder let content: Content
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ZStack(alignment: .topLeading) {
+                reference.hidden()
+                content
+            }
+        } else {
+            reference.hidden().overlay(alignment: .leading) { content }
+        }
+    }
+}
+
 /// The train information rows of a card: color bars, headsign, line, countdown.
 /// No padding, background or accessibility container — the caller supplies those.
 struct TrainInfo: View {
@@ -92,9 +114,9 @@ struct TrainCard: View {
 
     var body: some View {
         // A scaled-down headsign would otherwise make the card shorter than the skeleton's.
-        ZStack(alignment: .topLeading) {
+        ReferenceSized {
             TrainInfo(train: .dummy(now: now), now: now, prominence: prominence)
-                .hidden()
+        } content: {
             TrainInfo(train: train, now: now, prominence: prominence)
         }
         .padding(prominence == .next ? 16 : 12)
