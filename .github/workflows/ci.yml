@@ -203,7 +203,8 @@ jobs:
         run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
 
       - name: Run simulator tests
-        timeout-minutes: 15
+        # Keep time for Xcode to finalize the result bundle after a slow retry.
+        timeout-minutes: 18
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
           SELECTORS: ${{ matrix.selectors }}

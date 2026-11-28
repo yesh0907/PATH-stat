@@ -21,15 +21,17 @@ final class FeedbackUITests: XCTestCase {
         openViaButton(app)
 
         XCTAssertTrue(element(app, "feedback-screenshot").exists)
+        let idea = button(app, "feedback-category-idea")
         XCTAssertTrue(element(app, "feedback-category-bug").isSelected)
-        XCTAssertFalse(element(app, "feedback-category-idea").isSelected)
+        XCTAssertFalse(idea.isSelected)
         let send = button(app, "feedback-send")
         XCTAssertTrue(send.isEnabled, "a screenshot alone can be sent")
 
-        typeNote(app, "Froze at 2:13\nstuck")
-        button(app, "feedback-category-idea").tap()
-        wait(for: element(app, "feedback-category-idea"), "isSelected == true")
+        // Choose the category before the multiline note can shift the chips.
+        idea.tap()
+        wait(for: idea, "isSelected == true")
         XCTAssertFalse(element(app, "feedback-category-bug").isSelected)
+        typeNote(app, "Froze at 2:13\nstuck")
         attachScreenshot(app, "feedback-compose")
 
         send.tap()
