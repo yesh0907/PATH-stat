@@ -209,18 +209,48 @@ gh run view <run-id> --log-failed
 gh run download <run-id> --name pathstat-test-results --dir /tmp/pathstat-ci
 ```
 
-Open `Tests.xcresult` in Xcode or browse `attachments/` for UI-test screenshots. The
-`attachments/manifest.json` file maps the exported files to their human-readable test names.
-CI uploads the bundle and attachments on success and failure when Xcode produces them.
-The artifact also holds `Build.xcresult` (the build-for-testing step).
+Open the `.xcresult` bundles in Xcode or browse each shard's `attachments/` for UI-test screenshots
+(each `attachments/manifest.json` maps exported files to human-readable test names). The
+`pathstat-test-results` artifact is assembled by the gate job from per-job artifacts and uploaded on
+success and failure (partial results included), laid out as:
 
-- `App build and simulator tests` times `build-for-testing` and `test-without-building`
-  separately. The build disables code coverage and the index store, builds only the active
-  architecture, and restores Xcode's compilation cache for the same Xcode build, simulator
-  runtime, project and package manifests. The full simulator suite runs on three parallel
-  workers with at most one retry per failing test.
+```
+pathstat-results-build/Build.xcresult
+pathstat-results-<shard>/Tests.xcresult
+pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | other
+```
+
+Jobs (all in `.github/workflows/ci.yml`):
+
+- `plan` (Linux): the docs-only diff check below.
+- `build` (`xcode-27`): runs `build-for-testing` once with the Xcode compilation cache, keyed by
+  Xcode build, simulator runtime, project and package manifests. It archives `Build/Products`
+  with its relocatable `.xctestrun` in the one-day `pathstat-products` artifact.
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): each shard uses one simulator
+  (`-parallel-testing-enabled NO`), starts `simctl boot` before downloading the products so boot
+  overlaps the download (a failed boot because it is already booted is tolerated; `bootstatus -b`
+  waits later), and runs `test-without-building -xctestrun` with `-retry-tests-on-failure
+  -test-iterations 2`. No checkout is needed. Shards, disjoint and exhaustive:
+  - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
+  - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
+    `testRemoveScreenshot`, `testMainScreenHasSingleFeedbackButton`)
+  - `feedback-b`: all of `FeedbackUITests` except those four (so new feedback tests land here)
+  - `other`: all of `PATHStatUITests` except the `PATHStatUITests` and `FeedbackUITests` classes
+    (gallery, interaction, layout, and any new UI class)
+  Reproduce a shard locally with e.g. `xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat
+  -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:PATHStatUITests
+  -skip-testing:PATHStatUITests/PATHStatUITests -skip-testing:PATHStatUITests/FeedbackUITests`.
+  To rebalance the shards, edit the `selectors` in the matrix.
+- `app` (Linux, name **`App build and simulator tests`** — the required check, keep the exact name):
+  runs after all of the above, fails if `plan`, `build` or any shard failed, was cancelled or was
+  unexpectedly skipped, succeeds when the change is docs-only (build/tests correctly skipped), and
+  uploads `pathstat-test-results`.
+
+GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0,
+`actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2.
+
 - Root Markdown files, `docs/` and `screenshots/` can change without running the simulator
-  steps. The app job still reports success and `PATHKit package tests` still runs. CI compares
+  steps. The gate still reports success and `PATHKit package tests` still runs. `plan` compares
   the PR merge commit to its first parent and a main push to its previous commit. A manual
   dispatch or an unavailable diff runs the full suite.
 - New PR runs cancel superseded runs on the same PR.
