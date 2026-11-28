@@ -415,11 +415,15 @@ private struct BoardContent: View {
     private func trainsLayout(next: TrainArrival, following: TrainArrival?, later: [TrainArrival], skeleton: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 0) {
-                TrainInfo(train: next, now: now, prominence: .next)
-                    .padding(16)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(next.spokenDescription(prefix: "Next train", at: now))
-                    .accessibilityIdentifier(skeleton ? "skeleton-next-train" : "next-train")
+                ZStack(alignment: .topLeading) {
+                    TrainInfo(train: .dummy(now: now), now: now, prominence: .next)
+                        .hidden()
+                    TrainInfo(train: next, now: now, prominence: .next)
+                }
+                .padding(16)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(next.spokenDescription(prefix: "Next train", at: now))
+                .accessibilityIdentifier(skeleton ? "skeleton-next-train" : "next-train")
                 Divider()
                 LiveActivityStrip(controller: liveActivities, trip: model.trip, start: startLiveActivity, recordsErrors: !skeleton)
                     .padding(.horizontal, 16)
