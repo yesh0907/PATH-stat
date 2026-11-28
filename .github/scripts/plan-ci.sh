@@ -38,7 +38,7 @@ note() { echo "Full run: $1"; }
 
 api() { timeout 15s gh api "repos/$GITHUB_REPOSITORY/$1" 2>/dev/null; }
 
-# Prints the PR number and final head for an unambiguous push made by merging a PR.
+# Prints the PR number, final head SHA and head branch for an unambiguous PR merge.
 landed_pr() {
   local prs
   prs=$(api "commits/$GITHUB_SHA/pulls?per_page=100") \
@@ -47,20 +47,24 @@ landed_pr() {
     select(length < 100)
     | [.[] | select(.state == "closed" and .merged_at != null and .merge_commit_sha == $sha
         and .base.ref == $base and .base.repo.full_name == $repo and .head.repo.full_name == $repo)]
-    | select(length == 1) | .[0] | [.number, .head.sha] | @tsv' <<< "$prs"
+    | select(length == 1) | .[0] | [.number, .head.sha, .head.ref] | @tsv' <<< "$prs"
 }
 
 # Sets run_id on success. Check explicitly because errexit is off inside `if`.
 try_reuse() {
-  local pr=$1 head=$2 runs run_json attempt jobs name arts proof_id proof
+  local pr=$1 head=$2 head_branch=$3 runs run_json attempt jobs name arts proof_id proof
   runs=$(api "actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&per_page=100") \
     || { note "workflow run lookup failed"; return 1; }
-  run_json=$(jq -c --arg repo "$GITHUB_REPOSITORY" --arg head "$head" --argjson pr "$pr" '
+  # GitHub can omit PR associations after merge. Keep those candidates in the
+  # ordered lookup so a newer failed run still blocks reuse. The proof must name
+  # the merged PR before a run with no association can be reused.
+  run_json=$(jq -c --arg repo "$GITHUB_REPOSITORY" --arg head "$head" \
+    --arg branch "$head_branch" --argjson pr "$pr" '
     select(.total_count <= 100)
     | [.workflow_runs[] | select(((.path // "") | split("@")[0]) == ".github/workflows/ci.yml"
-        and .event == "pull_request" and .head_sha == $head
+        and .event == "pull_request" and .head_sha == $head and .head_branch == $branch
         and .repository.full_name == $repo and .head_repository.full_name == $repo
-        and ((.pull_requests // []) | map(.number) | index($pr) != null))]
+        and (.pull_requests | type == "array" and (length == 0 or any(.[]; .number == $pr))))]
     | max_by(.run_number) // empty | select(.status == "completed" and .conclusion == "success")
     | {id, run_attempt}' <<< "$runs" 2>/dev/null) \
     || { note "workflow run response unusable"; return 1; }
@@ -135,10 +139,12 @@ case "$GITHUB_EVENT_NAME" in
     if [[ $GITHUB_REF == "refs/heads/$main" && $before =~ $sha_re \
       && $(git rev-parse HEAD) == "$GITHUB_SHA" && $(git rev-parse HEAD^1 2>/dev/null) == "$before" ]]; then
       pair=$(landed_pr) || finish full
-      IFS=$'\t' read -r pr head <<< "$pair"
+      IFS=$'\t' read -r pr head head_branch <<< "$pair"
       if [[ $pr =~ $num_re && $head =~ $sha_re ]]; then
         if docs_only "$before"; then finish docs; else [[ $? == 1 ]] || finish full; fi
-        if try_reuse "$pr" "$head"; then finish reuse "$run_id"; fi
+        if git check-ref-format "refs/heads/$head_branch" && try_reuse "$pr" "$head" "$head_branch"; then
+          finish reuse "$run_id"
+        fi
       fi
     fi
     ;;
