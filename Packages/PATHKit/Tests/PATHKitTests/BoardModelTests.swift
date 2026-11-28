@@ -10,6 +10,32 @@ struct BoardModelTests {
     private let near23rd = StationCatalog.station(.twentyThirdStreet).location
     private let nearHoboken = StationCatalog.station(.hoboken).location
 
+    @Test func scheduledDepartureYieldsToRealtimePredictions() async throws {
+        let now = TrainScheduleTests.instant("2026-11-27T18:55:00Z")
+        let schedule = try TrainSchedule(files: TrainScheduleTests.files)
+        let model = BoardModel(
+            store: makeStore(), initialSnapshot: .sampleNoTrains(now: now), initialSchedule: schedule,
+            fetch: { .sampleTrains(now: now) }
+        )
+        model.select(.groveToWTC, manual: true)
+        #expect(model.nextScheduledDeparture(now: now) == TrainScheduleTests.instant("2026-11-27T19:07:30Z"))
+        await model.refresh()
+        #expect(model.board(now: now)?.next != nil)
+        #expect(model.nextScheduledDeparture(now: now) == nil)
+    }
+
+    @Test func cachedScheduleCanFillAnOfflineBoardAfterFetchFails() async throws {
+        let now = TrainScheduleTests.instant("2026-11-27T18:55:00Z")
+        let model = BoardModel(store: makeStore(), initialSchedule: try TrainSchedule(files: TrainScheduleTests.files)) {
+            throw URLError(.notConnectedToInternet)
+        }
+        model.select(.groveToWTC, manual: true)
+        #expect(model.nextScheduledDeparture(now: now) == nil)
+        await model.refresh()
+        #expect(model.errorMessage != nil)
+        #expect(model.nextScheduledDeparture(now: now) == TrainScheduleTests.instant("2026-11-27T19:07:30Z"))
+    }
+
     // MARK: Location default
 
     @Test func deniedThenAuthorizedReResolves() {

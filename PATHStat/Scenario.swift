@@ -4,7 +4,7 @@ import PATHKit
 
 /// Deterministic app states for UI tests, screenshots and previews.
 ///
-/// Launch with `-UITestScenario <loading|trains|singleTrain|noTrains|offline|locationDenied|offlineWithData>`
+/// Launch with `-UITestScenario <loading|trains|singleTrain|noTrains|scheduleFallback|offline|locationDenied|offlineWithData>`
 /// and optionally `-UITestLocation <lat>,<lon>`. Scenario mode uses a throwaway `TripStore`, a
 /// stub feed, and fixed location state; the real `CLLocationManager` is never created.
 enum Scenario: String, CaseIterable, Sendable {
@@ -14,6 +14,7 @@ enum Scenario: String, CaseIterable, Sendable {
     /// so the following-train and later-trains placeholders show.
     case singleTrain
     case noTrains
+    case scheduleFallback
     case offline
     case locationDenied
     /// Starts with a 3-minute-old snapshot and every fetch fails, so the "Can't update —
@@ -63,11 +64,20 @@ enum Scenario: String, CaseIterable, Sendable {
                 location: override ?? StationCatalog.station(.groveStreet).location
             )
         }
-        let initialSnapshot = self == .offlineWithData
-            ? PATHSnapshot.sampleTrains(now: .now.addingTimeInterval(-180))
-            : nil
+        let now = Date.now
+        let initialSnapshot: PATHSnapshot?
+        switch self {
+        case .offlineWithData: initialSnapshot = .sampleTrains(now: now.addingTimeInterval(-180))
+        case .scheduleFallback: initialSnapshot = .sampleNoTrains(now: now)
+        default: initialSnapshot = nil
+        }
+        let model = BoardModel(
+            store: store, initialSnapshot: initialSnapshot,
+            initialSchedule: self == .scheduleFallback ? .sample(now: now) : nil, fetch: fetch
+        )
+        if self == .scheduleFallback { model.select(.groveToWTC, manual: true) }
         return AppEnvironment(
-            model: BoardModel(store: store, initialSnapshot: initialSnapshot, fetch: fetch),
+            model: model,
             location: location,
             widgetSync: nil,
             liveActivities: LiveActivityController(backend: Self.liveActivityBackend()),
@@ -95,7 +105,7 @@ enum Scenario: String, CaseIterable, Sendable {
             return { PATHSnapshot.sampleTrains(now: .now) }
         case .singleTrain:
             return { PATHSnapshot.sampleTrains(now: .now, runsPerLine: 1) }
-        case .noTrains:
+        case .noTrains, .scheduleFallback:
             return { PATHSnapshot.sampleNoTrains(now: .now) }
         case .offline, .offlineWithData:
             return { throw URLError(.notConnectedToInternet) }
@@ -127,7 +137,7 @@ struct AppEnvironment {
         let feedback = FeedbackCenter.live()
         BackgroundRefresh.feedback = feedback
         return AppEnvironment(
-            model: BoardModel(store: store),
+            model: BoardModel(store: store, scheduleRepository: ScheduleRepository()),
             location: LocationService(),
             widgetSync: WidgetSync(),
             liveActivities: LiveActivityController(

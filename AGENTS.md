@@ -52,7 +52,7 @@ xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
 ### UI-test scenarios and screenshots
 
 The app has deterministic modes for UI tests, previews and screenshots (`PATHStat/Scenario.swift`):
-`-UITestScenario <loading|trains|singleTrain|noTrains|offline|locationDenied|offlineWithData>` and optional
+`-UITestScenario <loading|trains|singleTrain|noTrains|scheduleFallback|offline|locationDenied|offlineWithData>` and optional
 `-UITestLocation <lat>,<lon>` (alone it implies `trains`) and `-UITestFeedback <sent|offline|noToken>`
 (see "Feedback pipeline"). Scenario mode uses a stub feed, a
 throwaway `TripStore` suite and fixed location state; it never creates `CLLocationManager`.
@@ -60,7 +60,8 @@ throwaway `TripStore` suite and fixed location state; it never creates `CLLocati
 `offline-banner` appears after the first refresh. `singleTrain` is `trains` with one run per
 line, so Grove St → WTC has exactly one train and the `following-train-placeholder` /
 `later-trains-placeholder` messages show. UI coverage also includes switching trips from
-a favorite.
+a favorite. `scheduleFallback` shows Grove St → WTC with an empty realtime board and a
+sample timetable; `noTrains` still has no timetable.
 `-WidgetGallery <live|stale|offline|unavailable|noTrains>` instead shows every widget family
 (shared views from `PATHStatWidgetUI/`, fixed `WidgetTimeline` entries from PATHKit's sample
 snapshots) on one screen, identifier `widget-gallery` (tiles: `widget-systemSmall`, ...).
@@ -80,12 +81,19 @@ end. Background refresh (`BackgroundRefresh`) is live-only: any scenario/gallery
 disables it.
 UI tests find elements by accessibility identifier (`station-header`, `direction-control`
 (the three-segment direction control: quick picks `destination-<CODE>` plus the
-`more-destinations` menu), `favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`,
+`more-destinations` menu), `favorite-<FROM>-<TO>`, `station-<CODE>`, `next-train`, `next-train-scheduled`,
 `following-train`, `following-train-placeholder`, `later-trains`, `later-trains-placeholder`,
 `offline-banner`, `state-loading`,
 `live-activity-button` (start / "Switch to this trip"), `live-activity-status`,
 `live-activity-stop`, `live-activity-error`, `live-activity-disabled`, `live-activity-settings`, ...);
 keep identifiers stable when editing views.
+
+In live mode PATHKit's `ScheduleRepository` downloads the
+[Port Authority PATH GTFS schedule](https://www.panynj.gov/content/dam/path/gtfs/PATH_GTFS.zip)
+and caches the last valid ZIP in the App Group (or caches directory without it). The app refreshes
+it daily while active. The main board can show the next scheduled departure when no realtime
+departure is available, including offline with a usable cached timetable. Widgets and Live
+Activities still use only realtime data.
 
 ```sh
 # Export UI-test screenshots (each test attaches one, named after the test)
@@ -138,8 +146,9 @@ manual checks never call the real GitHub API and never use a real token.
 
 - **Labels are a contract** with the daily 6:13 AM ET Devin triage automation: every issue the
   app creates has exactly `feedback` plus one of `bug`, `design-nit`, `frustration`, `idea`
-  (colours in `GitHubClient.labelColors`). Lifecycle labels `devin-working`, `devin-shipped`
-  and `needs-yesh` are set only by the automation, never by the app; don't add them to app code.
+  (colours in `GitHubClient.labelColors`). Lifecycle labels `devin-working`, `devin-shipped`,
+  `design-proposed` and `needs-yesh` are set only by the automation. The owner-only labels
+  `mockup-first` and `just-ship` override design triage. The app does not set these labels.
 - **Title**: first non-empty note line, whitespace collapsed, ≤ 80 chars cut at a word with
   "…"; else `<Category> on <screen>`.
 - **Body** (exact order, see `FeedbackIssueFormatter.body`): the full note or `_No note._`;
