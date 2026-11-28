@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -23,8 +23,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
-      - &checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: &checkout actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -66,13 +65,42 @@ jobs:
   app:
     name: App build and simulator tests
     runs-on: xcode-27
-    timeout-minutes: 50
+    timeout-minutes: 30
     steps:
-      - *checkout
+      - uses: *checkout
+        with:
+          persist-credentials: false
+          # Main pushes may contain more than one commit. Compare trees without fetching old blobs.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Plan simulator run
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=
+          case "$EVENT" in
+            pull_request) base=HEAD^1 ;; # First parent of GitHub's PR merge commit
+            push) base=$BEFORE ;;
+          esac
+
+          run=true
+          # Run the suite if the diff is unavailable or includes any non-documentation path.
+          # Disable rename detection so moving a source file into docs still runs the suite.
+          if [[ -n "$base" ]] && git diff --quiet --no-renames "$base" HEAD -- . \
+            ':(top,glob,exclude)*.md' ':(top,exclude)docs/' ':(top,exclude)screenshots/'; then
+            run=false
+          fi
+          echo "Run simulator tests: $run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
       - *xcode
 
       - name: Select iPhone simulator
         id: simulator
+        if: steps.plan.outputs.run == 'true'
         run: |
           simulator=$(xcrun simctl list --json | jq -er '
             ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
@@ -87,30 +115,55 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Xcode build products
+      # Xcode validates the contents of the cache against the compiler inputs.
+      # Each run can save new entries, even when it restored a previous run's cache.
+      - name: Cache Xcode compilation cache
+        if: steps.plan.outputs.run == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/PATHStatDerivedData/Build
-          key: xcode-build-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat/**', 'PATHStatUITests/**', 'PATHStatWidget/**', 'PATHStatWidgetUI/**', 'PATHStat.xcodeproj/**', 'Packages/PATHKit/**') }}
+          path: ${{ runner.temp }}/PATHStatCompilationCache
+          key: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-${{ github.run_id }}
+          restore-keys: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-
 
-      - name: Build and test PATHStat
-        timeout-minutes: 40
+      - name: Build for testing
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 8
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
           unset PATH_LIVE
           mkdir -p "$RUNNER_TEMP/pathstat-results"
-          xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+          xcodebuild build-for-testing -project PATHStat.xcodeproj -scheme PATHStat \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
+            -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
+            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_CAS_PATH="$RUNNER_TEMP/PATHStatCompilationCache" \
+            'OTHER_SWIFT_FLAGS=$(inherited) -Rcache-compile-job'
+
+      - name: Run simulator tests
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 20
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          unset PATH_LIVE
+          # -retry-tests-on-failure -test-iterations 2 only re-runs tests that failed (at most
+          # one extra attempt each); it does not run the suite twice.
+          xcodebuild test-without-building -project PATHStat.xcodeproj -scheme PATHStat \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -destination-timeout 120 \
-            -parallel-testing-enabled NO \
+            -parallel-testing-enabled YES -parallel-testing-worker-count 3 \
             -retry-tests-on-failure -test-iterations 2 \
+            -enableCodeCoverage NO \
             -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Export UI-test screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.plan.outputs.run == 'true' }}
         run: |
           results="$RUNNER_TEMP/pathstat-results"
           if [[ -d "$results/Tests.xcresult" ]]; then
@@ -119,7 +172,7 @@ jobs:
           fi
 
       - name: Upload test results and screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.plan.outputs.run == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pathstat-test-results

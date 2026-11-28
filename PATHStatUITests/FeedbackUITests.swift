@@ -21,7 +21,7 @@ final class FeedbackUITests: XCTestCase {
         let send = element(app, "feedback-send")
         XCTAssertTrue(send.isEnabled, "a screenshot alone can be sent")
 
-        typeNote(app, "Countdown froze at Grove St\nIt stuck at 2:13.")
+        typeNote(app, "Froze at 2:13\nstuck")
         element(app, "feedback-category-idea").tap()
         wait(for: element(app, "feedback-category-idea"), "isSelected == true")
         XCTAssertFalse(element(app, "feedback-category-bug").isSelected)
@@ -53,12 +53,12 @@ final class FeedbackUITests: XCTestCase {
         element(app, "feedback-cancel").tap()
         // Regression: a shake during the dismissal animation must not wedge presentation.
         shake(app)
-        Thread.sleep(forTimeInterval: 1)   // let the dismissal (and any re-open) settle
-        if element(app, "feedback-sheet").exists {
-            // Tolerated: the shake re-opened the sheet after dismissal completed.
+        let sheet = element(app, "feedback-sheet")
+        if !sheet.waitForNonExistence(timeout: 2) {
+            // The shake can re-open the sheet if dismissal completed before delivery.
             element(app, "feedback-cancel").tap()
+            XCTAssertTrue(sheet.waitForNonExistence(timeout: timeout))
         }
-        wait(for: element(app, "feedback-sheet"), "exists == false")
 
         // A shake after the sheet is fully gone opens it again.
         shake(app)
@@ -83,7 +83,7 @@ final class FeedbackUITests: XCTestCase {
     func testQueuedWithoutToken() {
         let app = launch(feedback: "noToken")
         openViaButton(app)
-        typeNote(app, "Add a dark mode icon")
+        typeNote(app, "Dark icon")
         element(app, "feedback-category-design-nit").tap()
         element(app, "feedback-send").tap()
 
@@ -103,7 +103,7 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(element(app, "feedback-settings").waitForExistence(timeout: timeout))
         XCTAssertTrue(element(app, "feedback-token-field").exists)
         XCTAssertTrue(element(app, "feedback-retry").exists)
-        XCTAssertTrue(app.staticTexts["Add a dark mode icon"].exists)
+        XCTAssertTrue(app.staticTexts["Dark icon"].exists)
         attachScreenshot(app, "feedback-settings-waiting")
     }
 
@@ -111,7 +111,7 @@ final class FeedbackUITests: XCTestCase {
     func testQueuedNoTokenOpensSettings() {
         let app = launch(feedback: "noToken")
         openViaButton(app)
-        typeNote(app, "Add a dark mode icon")
+        typeNote(app, "Dark icon")
         element(app, "feedback-send").tap()
 
         XCTAssertTrue(element(app, "feedback-queued").waitForExistence(timeout: timeout))
@@ -124,7 +124,7 @@ final class FeedbackUITests: XCTestCase {
     func testOfflineQueued() {
         let app = launch(feedback: "offline")
         openViaButton(app)
-        typeNote(app, "Trains missing after 1am")
+        typeNote(app, "Late trains")
         element(app, "feedback-send").tap()
 
         XCTAssertTrue(element(app, "feedback-queued").waitForExistence(timeout: timeout))
@@ -158,7 +158,7 @@ final class FeedbackUITests: XCTestCase {
 
         toggle.tap()
         wait(for: screenshot, "exists == false")
-        typeNote(app, "Header overlaps the clock")
+        typeNote(app, "Header bug")
         XCTAssertTrue(send.isEnabled)
         send.tap()
         XCTAssertTrue(element(app, "feedback-sent").waitForExistence(timeout: timeout))

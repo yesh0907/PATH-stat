@@ -212,6 +212,18 @@ gh run download <run-id> --name pathstat-test-results --dir /tmp/pathstat-ci
 Open `Tests.xcresult` in Xcode or browse `attachments/` for UI-test screenshots. The
 `attachments/manifest.json` file maps the exported files to their human-readable test names.
 CI uploads the bundle and attachments on success and failure when Xcode produces them.
+The artifact also holds `Build.xcresult` (the build-for-testing step).
+
+- `App build and simulator tests` times `build-for-testing` and `test-without-building`
+  separately. The build disables code coverage and the index store, builds only the active
+  architecture, and restores Xcode's compilation cache for the same Xcode build, simulator
+  runtime, project and package manifests. The full simulator suite runs on three parallel
+  workers with at most one retry per failing test.
+- Root Markdown files, `docs/` and `screenshots/` can change without running the simulator
+  steps. The app job still reports success and `PATHKit package tests` still runs. CI compares
+  the PR merge commit to its first parent and a main push to its previous commit. A manual
+  dispatch or an unavailable diff runs the full suite.
+- New PR runs cancel superseded runs on the same PR.
 
 ## Signing (hard rule)
 
