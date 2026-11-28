@@ -127,6 +127,16 @@ final class PATHStatUITests: PATHStatUITestCase {
         XCTAssertTrue(next.waitForExistence(timeout: timeout))
         XCTAssertTrue(next.label.hasPrefix("Next train to Journal Square"), next.label)
         attachScreenshot(app, "near-23rd-street")
+
+        // Switch away from and back to home with one tap each.
+        element(app, "destination-33S").tap()
+        wait(for: element(app, "destination-33S"), "isSelected == true")
+        XCTAssertNotEqual(element(app, "trip-title").label, "Going home")
+
+        element(app, "destination-GRV").tap()
+        wait(for: element(app, "destination-GRV"), "isSelected == true")
+        XCTAssertEqual(element(app, "trip-title").label, "Going home")
+        attachScreenshot(app, "one-tap-home")
     }
 
     @MainActor
@@ -139,21 +149,5 @@ final class PATHStatUITests: PATHStatUITestCase {
         XCTAssertTrue(element(app, "destination-GRV").isSelected)
         XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
         attachScreenshot(app, "near-hoboken")
-    }
-
-    @MainActor
-    func testOneTapHomeFromTwentyThird() {
-        let app = launch(scenario: "trains", location: "40.7432,-73.9925")
-        XCTAssertTrue(element(app, "station-header").waitForExistence(timeout: timeout))
-        XCTAssertEqual(element(app, "trip-title").label, "Going home")
-
-        element(app, "destination-33S").tap()
-        wait(for: element(app, "destination-33S"), "isSelected == true")
-        XCTAssertNotEqual(element(app, "trip-title").label, "Going home")
-
-        element(app, "destination-GRV").tap()
-        wait(for: element(app, "destination-GRV"), "isSelected == true")
-        XCTAssertEqual(element(app, "trip-title").label, "Going home")
-        attachScreenshot(app, "one-tap-home")
     }
 }

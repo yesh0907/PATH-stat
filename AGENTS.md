@@ -227,7 +227,7 @@ success and failure (partial results included), laid out as:
 ```
 pathstat-results-<shard>/Build.xcresult
 pathstat-results-<shard>/Tests.xcresult
-pathstat-results-<shard>/attachments/      # shard = core | feedback | galleries | other
+pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | galleries | other
 ```
 
 Jobs (all in `.github/workflows/ci.yml`):
@@ -238,16 +238,18 @@ Jobs (all in `.github/workflows/ci.yml`):
   workflow token on pushes. Each API request has a 15-second timeout and errors select `full`.
 - `package` (`PATHKit package tests`, macOS) and `tests` run only for `full`. Both first check
   that the checked-out tree equals the planned tree.
-- `tests` (matrix, `xcode-27`, `fail-fast: false`): four shards, each with one simulator
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
   (`-parallel-testing-enabled NO`). CI prefers iPhone 18 Pro Max, iPhone 18 Pro, then iPhone 17
   for the layout checks. Each shard runs an unsigned `build-for-testing` into a local derived
   data path, then uses `simctl bootstatus -b` to boot and wait for the simulator.
   `test-without-building` uses the generated `.xctestrun` and retries failed tests once. Local builds
   avoid the multi-minute downloads observed when restoring Xcode compiler caches or transferring
   shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
-  - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests` + `FeedbackUITests/testQueuedWithoutToken`
-  - `feedback`: `FeedbackUITests` except the two cases assigned to `core` and `galleries`
-  - `galleries`: `WidgetGalleryUITests` + `LiveActivityGalleryUITests` + `FeedbackUITests/testOfflineQueued`
+  - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
+  - `feedback-a`: `testSendViaButton`, `testQueuedWithoutToken` and `testRemoveScreenshot`
+    from `FeedbackUITests`
+  - `feedback-b`: the remaining `FeedbackUITests` cases, including new cases
+  - `galleries`: `WidgetGalleryUITests` + `LiveActivityGalleryUITests`
   - `other`: `-only-testing:PATHStatUITests` minus the `PATHStatUITests`, `FeedbackUITests`,
     `WidgetGalleryUITests` and `LiveActivityGalleryUITests` classes. It picks up interaction,
     layout and any new UI class automatically. A new class that should run in its own shard needs

@@ -18,7 +18,7 @@ defaults:
     shell: bash
 
 env:
-  CI_SHARDS: core feedback galleries other
+  CI_SHARDS: core feedback-a feedback-b galleries other
 
 jobs:
   package:
@@ -110,12 +110,13 @@ jobs:
           GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: .github/scripts/plan-ci.sh
 
-  # Four disjoint shards run concurrently, each on its own runner with its own simulator
+  # Five disjoint shards run concurrently, each on its own runner with its own simulator
   # (no parallel clones). Each builds locally: transferring the products cost more than compiling.
   # Selectors together cover everything:
-  #   core       PATHKitTests + PATHStatUITests/PATHStatUITests + one feedback case
-  #   feedback   FeedbackUITests except the cases assigned to core and galleries
-  #   galleries  WidgetGalleryUITests + LiveActivityGalleryUITests + one feedback case
+  #   core       PATHKitTests + PATHStatUITests/PATHStatUITests
+  #   feedback-a three named FeedbackUITests cases
+  #   feedback-b all other FeedbackUITests cases (including future ones)
+  #   galleries  WidgetGalleryUITests + LiveActivityGalleryUITests
   #   other      every UI class except core, FeedbackUITests and the galleries (future classes land here)
   tests:
     name: Simulator tests (${{ matrix.shard }})
@@ -131,17 +132,21 @@ jobs:
             selectors: >-
               -only-testing:PATHKitTests
               -only-testing:PATHStatUITests/PATHStatUITests
+          - shard: feedback-a
+            selectors: >-
+              -only-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
               -only-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
-          - shard: feedback
+              -only-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
+          - shard: feedback-b
             selectors: >-
               -only-testing:PATHStatUITests/FeedbackUITests
+              -skip-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
               -skip-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
-              -skip-testing:PATHStatUITests/FeedbackUITests/testOfflineQueued
+              -skip-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
           - shard: galleries
             selectors: >-
               -only-testing:PATHStatUITests/WidgetGalleryUITests
               -only-testing:PATHStatUITests/LiveActivityGalleryUITests
-              -only-testing:PATHStatUITests/FeedbackUITests/testOfflineQueued
           - shard: other
             selectors: >-
               -only-testing:PATHStatUITests
