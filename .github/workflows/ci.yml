@@ -196,15 +196,20 @@ jobs:
         run: |
           unset PATH_LIVE
           read -r -a selectors <<< "$SELECTORS"
+          shopt -s nullglob
+          test_runs=("$RUNNER_TEMP/PATHStatDerivedData/Build/Products/"*.xctestrun)
+          if [[ ${#test_runs[@]} -ne 1 ]]; then
+            echo "::error::Expected one PATHStat .xctestrun file, found ${#test_runs[@]}"
+            exit 1
+          fi
           # -retry-tests-on-failure -test-iterations 2 only re-runs tests that failed (at most
           # one extra attempt each); it does not run the suite twice.
-          xcodebuild test-without-building -project PATHStat.xcodeproj -scheme PATHStat \
+          xcodebuild test-without-building -xctestrun "${test_runs[0]}" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -destination-timeout 120 \
             -parallel-testing-enabled NO \
             -retry-tests-on-failure -test-iterations 2 \
             -enableCodeCoverage NO \
-            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
             "${selectors[@]}" \
             CODE_SIGNING_ALLOWED=NO

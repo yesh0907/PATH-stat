@@ -226,7 +226,7 @@ Jobs (all in `.github/workflows/ci.yml`):
 - `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
   (`-parallel-testing-enabled NO`). Each runs an unsigned `build-for-testing` into a local
   derived data path, then `simctl bootstatus -b` to boot and wait for the simulator.
-  `test-without-building` runs with `-retry-tests-on-failure -test-iterations 2`. Local builds avoid
+  `test-without-building` uses the generated `.xctestrun` and retries failed tests once. Local builds avoid
   the multi-minute downloads observed when restoring Xcode compiler caches or transferring
   shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
