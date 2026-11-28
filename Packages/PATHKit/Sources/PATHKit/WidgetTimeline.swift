@@ -28,7 +28,6 @@ public struct WidgetEntryState: Sendable, Hashable {
     }
 }
 
-
 /// Whole-minute countdown text for widgets, rounded down.
 public enum MinutesCountdown: Sendable, Hashable {
     /// >= 1 minute remaining.
