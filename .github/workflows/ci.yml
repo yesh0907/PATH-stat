@@ -99,99 +99,19 @@ jobs:
           echo "Run simulator tests: $run"
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
-  # Builds once; every test shard downloads the products archive instead of compiling.
-  build:
-    name: Build for simulator tests
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
-    runs-on: xcode-27
-    timeout-minutes: 20
-    steps:
-      - uses: *checkout
-        with:
-          persist-credentials: false
-
-      - *xcode
-
-      - &simulator
-        name: Select iPhone simulator
-        id: simulator
-        run: |
-          simulator=$(xcrun simctl list --json | jq -er '
-            ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
-              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
-            | first($runtimes[] as $runtime | .devices[$runtime.identifier][]?
-                | select(.isAvailable and (.name | startswith("iPhone ")))
-                | [.udid, .name, $runtime.version, $runtime.buildversion] | @tsv)
-              // error("No available iPhone simulator")
-          ')
-          IFS=$'\t' read -r udid name version build <<< "$simulator"
-          echo "Testing on $name (iOS $version, $build)"
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          echo "build=$build" >> "$GITHUB_OUTPUT"
-
-      # Xcode validates the contents of the cache against the compiler inputs.
-      # Each run can save new entries, even when it restored a previous run's cache.
-      - name: Cache Xcode compilation cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/PATHStatCompilationCache
-          key: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-${{ github.run_id }}
-          restore-keys: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-
-
-      - name: Build for testing
-        timeout-minutes: 12
-        env:
-          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
-        run: |
-          unset PATH_LIVE
-          mkdir -p "$RUNNER_TEMP/pathstat-results"
-          xcodebuild build-for-testing -project PATHStat.xcodeproj -scheme PATHStat \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
-            -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
-            -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
-            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
-            COMPILATION_CACHE_CAS_PATH="$RUNNER_TEMP/PATHStatCompilationCache" \
-            'OTHER_SWIFT_FLAGS=$(inherited) -Rcache-compile-job'
-
-      # tar keeps symlinks, modes and bundle layout; the .xctestrun uses __TESTROOT__-relative paths.
-      - name: Archive build products
-        run: |
-          products="$RUNNER_TEMP/PATHStatDerivedData/Build/Products"
-          ls "$products"/*.xctestrun
-          tar -C "$RUNNER_TEMP/PATHStatDerivedData/Build" -cf "$RUNNER_TEMP/products.tar" Products
-
-      - name: Upload build products
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: pathstat-products
-          path: ${{ runner.temp }}/products.tar
-          compression-level: 1
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Upload build result
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: pathstat-results-build
-          path: ${{ runner.temp }}/pathstat-results/
-          include-hidden-files: true
-          retention-days: 14
-          if-no-files-found: ignore
-
-  # One simulator per job, no parallel clones. Selectors are disjoint and together cover everything:
+  # Four disjoint shards run concurrently, each on its own runner with its own simulator
+  # (no parallel clones). Each builds locally: transferring the products cost more than compiling.
+  # Selectors together cover everything:
   #   core       PATHKitTests + PATHStatUITests/PATHStatUITests
   #   feedback-a four named FeedbackUITests cases
   #   feedback-b all other FeedbackUITests cases (including future ones)
   #   other      every UI class except the two above (gallery, interaction, layout, future classes)
   tests:
     name: Simulator tests (${{ matrix.shard }})
-    needs: build
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -219,27 +139,72 @@ jobs:
               -skip-testing:PATHStatUITests/PATHStatUITests
               -skip-testing:PATHStatUITests/FeedbackUITests
     steps:
+      - uses: *checkout
+        with:
+          persist-credentials: false
+
       - *xcode
 
-      - *simulator
+      - name: Select iPhone simulator
+        id: simulator
+        run: |
+          simulator=$(xcrun simctl list --json | jq -er '
+            ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
+              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
+            | first($runtimes[] as $runtime | .devices[$runtime.identifier][]?
+                | select(.isAvailable and (.name | startswith("iPhone ")))
+                | [.udid, .name, $runtime.version, $runtime.buildversion] | @tsv)
+              // error("No available iPhone simulator")
+          ')
+          IFS=$'\t' read -r udid name version build <<< "$simulator"
+          echo "Testing on $name (iOS $version, $build)"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
-      # Start booting now so it overlaps the artifact download. Already booted is fine.
+      # simctl boot returns once boot has started; it overlaps the compile below.
+      # An already booted device is fine.
       - name: Start simulator boot
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
           xcrun simctl boot "$SIMULATOR_UDID" || echo "simctl boot failed or already booted; continuing"
 
-      - name: Download build products
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      # All shards restore the same entries; only core saves (below), so there is one writer.
+      # Xcode validates the contents of the cache against the compiler inputs.
+      - name: Restore Xcode compilation cache
+        id: compilation-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          name: pathstat-products
-          path: ${{ runner.temp }}/products-archive
+          path: ${{ runner.temp }}/PATHStatCompilationCache
+          key: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-${{ github.run_id }}
+          restore-keys: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-
 
-      - name: Extract build products
+      - name: Build for testing
+        timeout-minutes: 15
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
-          mkdir -p "$RUNNER_TEMP/PATHStatBuild"
-          tar -C "$RUNNER_TEMP/PATHStatBuild" -xf "$RUNNER_TEMP/products-archive/products.tar"
+          unset PATH_LIVE
+          mkdir -p "$RUNNER_TEMP/pathstat-results"
+          xcodebuild build-for-testing -project PATHStat.xcodeproj -scheme PATHStat \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
+            -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
+            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_CAS_PATH="$RUNNER_TEMP/PATHStatCompilationCache" \
+            'OTHER_SWIFT_FLAGS=$(inherited) -Rcache-compile-job'
+
+      # Saved right after a successful build, before tests, so a failing test still saves a
+      # cache and a save failure cannot fail the job.
+      - name: Save Xcode compilation cache
+        if: matrix.shard == 'core' && steps.compilation-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/PATHStatCompilationCache
+          key: ${{ steps.compilation-cache.outputs.cache-primary-key }}
 
       - name: Wait for simulator
         env:
@@ -254,21 +219,16 @@ jobs:
           SELECTORS: ${{ matrix.selectors }}
         run: |
           unset PATH_LIVE
-          mkdir -p "$RUNNER_TEMP/pathstat-results"
-          manifests=("$RUNNER_TEMP"/PATHStatBuild/Products/*.xctestrun)
-          if [[ ${#manifests[@]} -ne 1 || ! -f "${manifests[0]}" ]]; then
-            echo "::error::Expected exactly one .xctestrun in the build products"
-            exit 1
-          fi
           read -r -a selectors <<< "$SELECTORS"
           # -retry-tests-on-failure -test-iterations 2 only re-runs tests that failed (at most
           # one extra attempt each); it does not run the suite twice.
-          xcodebuild test-without-building -xctestrun "${manifests[0]}" \
+          xcodebuild test-without-building -project PATHStat.xcodeproj -scheme PATHStat \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -destination-timeout 120 \
             -parallel-testing-enabled NO \
             -retry-tests-on-failure -test-iterations 2 \
             -enableCodeCoverage NO \
+            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
             "${selectors[@]}" \
             CODE_SIGNING_ALLOWED=NO
@@ -295,7 +255,7 @@ jobs:
   # Required check. Keep this exact name: branch protection matches it.
   app:
     name: App build and simulator tests
-    needs: [plan, build, tests]
+    needs: [plan, tests]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -304,22 +264,21 @@ jobs:
         env:
           RUN: ${{ needs.plan.outputs.run }}
           PLAN: ${{ needs.plan.result }}
-          BUILD: ${{ needs.build.result }}
           TESTS: ${{ needs.tests.result }}
         run: |
-          echo "plan=$PLAN run=$RUN build=$BUILD tests=$TESTS"
+          echo "plan=$PLAN run=$RUN tests=$TESTS"
           if [[ "$PLAN" != success ]]; then
             echo "::error::Planning did not succeed ($PLAN)"; exit 1
           fi
           if [[ "$RUN" == false ]]; then
-            if [[ "$BUILD" != skipped || "$TESTS" != skipped ]]; then
-              echo "::error::Docs-only run should skip build and tests"; exit 1
+            if [[ "$TESTS" != skipped ]]; then
+              echo "::error::Docs-only run should skip the simulator tests"; exit 1
             fi
             echo "Docs-only change: simulator tests skipped"
             exit 0
           fi
-          if [[ "$BUILD" != success || "$TESTS" != success ]]; then
-            echo "::error::Build ($BUILD) or simulator tests ($TESTS) did not succeed"; exit 1
+          if [[ "$TESTS" != success ]]; then
+            echo "::error::Simulator build or tests did not succeed ($TESTS)"; exit 1
           fi
 
       - name: Collect results
@@ -329,8 +288,7 @@ jobs:
           pattern: pathstat-results-*
           path: ${{ runner.temp }}/pathstat-collected
 
-      # Layout: pathstat-results-build/Build.xcresult and
-      # pathstat-results-<shard>/{Tests.xcresult,attachments/} per shard.
+      # Layout: pathstat-results-<shard>/{Build.xcresult,Tests.xcresult,attachments/} per shard.
       - name: Upload test results and screenshots
         if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

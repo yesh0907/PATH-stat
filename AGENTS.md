@@ -215,7 +215,7 @@ Open the `.xcresult` bundles in Xcode or browse each shard's `attachments/` for 
 success and failure (partial results included), laid out as:
 
 ```
-pathstat-results-build/Build.xcresult
+pathstat-results-<shard>/Build.xcresult
 pathstat-results-<shard>/Tests.xcresult
 pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | other
 ```
@@ -223,14 +223,14 @@ pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedbac
 Jobs (all in `.github/workflows/ci.yml`):
 
 - `plan` (Linux): the docs-only diff check below.
-- `build` (`xcode-27`): runs `build-for-testing` once with the Xcode compilation cache, keyed by
-  Xcode build, simulator runtime, project and package manifests. It archives `Build/Products`
-  with its relocatable `.xctestrun` in the one-day `pathstat-products` artifact.
-- `tests` (matrix, `xcode-27`, `fail-fast: false`): each shard uses one simulator
-  (`-parallel-testing-enabled NO`), starts `simctl boot` before downloading the products so boot
-  overlaps the download (a failed boot because it is already booted is tolerated; `bootstatus -b`
-  waits later), and runs `test-without-building -xctestrun` with `-retry-tests-on-failure
-  -test-iterations 2`. No checkout is needed. Shards, disjoint and exhaustive:
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): four concurrent runners, each with one
+  simulator (`-parallel-testing-enabled NO`). Each shard checks out, starts `simctl boot` (an
+  already booted device is tolerated) so boot overlaps the build, restores the Xcode compilation
+  cache (`actions/cache/restore`; key: Xcode build, simulator runtime, project and package
+  manifests, run id, with a prefix fallback), runs its own `build-for-testing`, then
+  `bootstatus -b` and `test-without-building` with `-retry-tests-on-failure -test-iterations 2`.
+  Only the `core` shard saves the cache after a successful build. Shards
+  (disjoint, exhaustive):
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
   - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
     `testRemoveScreenshot`, `testMainScreenHasSingleFeedbackButton`)
@@ -241,9 +241,12 @@ Jobs (all in `.github/workflows/ci.yml`):
   -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:PATHStatUITests
   -skip-testing:PATHStatUITests/PATHStatUITests -skip-testing:PATHStatUITests/FeedbackUITests`.
   To rebalance the shards, edit the `selectors` in the matrix.
+  Each shard uploads `pathstat-results-<shard>` with the build and test bundles and attachments
+  on success or failure. Compiling within each shard avoids the three-plus minutes it took to
+  download shared build products on some hosted runners.
 - `app` (Linux, name **`App build and simulator tests`** — the required check, keep the exact name):
-  runs after all of the above, fails if `plan`, `build` or any shard failed, was cancelled or was
-  unexpectedly skipped, succeeds when the change is docs-only (build/tests correctly skipped), and
+  runs after `plan` and `tests`, fails if `plan` or any shard failed, was cancelled or was
+  unexpectedly skipped, succeeds when the change is docs-only (tests correctly skipped), and
   uploads `pathstat-test-results`.
 
 GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0,
