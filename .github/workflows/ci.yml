@@ -99,13 +99,14 @@ jobs:
           echo "Run simulator tests: $run"
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
-  # Four disjoint shards run concurrently, each on its own runner with its own simulator
+  # Five disjoint shards run concurrently, each on its own runner with its own simulator
   # (no parallel clones). Each builds locally: transferring the products cost more than compiling.
   # Selectors together cover everything:
   #   core       PATHKitTests + PATHStatUITests/PATHStatUITests
   #   feedback-a four named FeedbackUITests cases
   #   feedback-b all other FeedbackUITests cases (including future ones)
-  #   other      every UI class except the two above (gallery, interaction, layout, future classes)
+  #   galleries  WidgetGalleryUITests + LiveActivityGalleryUITests
+  #   other      every UI class except core, FeedbackUITests and the galleries (future classes land here)
   tests:
     name: Simulator tests (${{ matrix.shard }})
     needs: plan
@@ -133,11 +134,17 @@ jobs:
               -skip-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
               -skip-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
               -skip-testing:PATHStatUITests/FeedbackUITests/testMainScreenHasSingleFeedbackButton
+          - shard: galleries
+            selectors: >-
+              -only-testing:PATHStatUITests/WidgetGalleryUITests
+              -only-testing:PATHStatUITests/LiveActivityGalleryUITests
           - shard: other
             selectors: >-
               -only-testing:PATHStatUITests
               -skip-testing:PATHStatUITests/PATHStatUITests
               -skip-testing:PATHStatUITests/FeedbackUITests
+              -skip-testing:PATHStatUITests/WidgetGalleryUITests
+              -skip-testing:PATHStatUITests/LiveActivityGalleryUITests
     steps:
       - uses: *checkout
         with:
@@ -159,7 +166,6 @@ jobs:
           IFS=$'\t' read -r udid name version build <<< "$simulator"
           echo "Testing on $name (iOS $version, $build)"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       # simctl boot returns once boot has started; it overlaps the compile below.
       # An already booted device is fine.
@@ -168,16 +174,6 @@ jobs:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
           xcrun simctl boot "$SIMULATOR_UDID" || echo "simctl boot failed or already booted; continuing"
-
-      # All shards restore the same entries; only core saves (below), so there is one writer.
-      # Xcode validates the contents of the cache against the compiler inputs.
-      - name: Restore Xcode compilation cache
-        id: compilation-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/PATHStatCompilationCache
-          key: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-${{ github.run_id }}
-          restore-keys: xcode-cc-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat.xcodeproj/project.pbxproj', '**/Package.swift', '**/Package.resolved') }}-
 
       - name: Build for testing
         timeout-minutes: 15
@@ -191,20 +187,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
             -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
-            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
-            COMPILATION_CACHE_CAS_PATH="$RUNNER_TEMP/PATHStatCompilationCache" \
-            'OTHER_SWIFT_FLAGS=$(inherited) -Rcache-compile-job'
-
-      # Saved right after a successful build, before tests, so a failing test still saves a
-      # cache and a save failure cannot fail the job.
-      - name: Save Xcode compilation cache
-        if: matrix.shard == 'core' && steps.compilation-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/PATHStatCompilationCache
-          key: ${{ steps.compilation-cache.outputs.cache-primary-key }}
+            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO
 
       - name: Wait for simulator
         env:

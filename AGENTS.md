@@ -217,39 +217,42 @@ success and failure (partial results included), laid out as:
 ```
 pathstat-results-<shard>/Build.xcresult
 pathstat-results-<shard>/Tests.xcresult
-pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | other
+pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | galleries | other
 ```
 
 Jobs (all in `.github/workflows/ci.yml`):
 
 - `plan` (Linux): the docs-only diff check below.
-- `tests` (matrix, `xcode-27`, `fail-fast: false`): four concurrent runners, each with one
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): five concurrent runners, each with one
   simulator (`-parallel-testing-enabled NO`). Each shard checks out, starts `simctl boot` (an
-  already booted device is tolerated) so boot overlaps the build, restores the Xcode compilation
-  cache (`actions/cache/restore`; key: Xcode build, simulator runtime, project and package
-  manifests, run id, with a prefix fallback), runs its own `build-for-testing`, then
-  `bootstatus -b` and `test-without-building` with `-retry-tests-on-failure -test-iterations 2`.
-  Only the `core` shard saves the cache after a successful build. Shards
-  (disjoint, exhaustive):
+  already booted device is tolerated) so boot overlaps the build, runs its own unsigned
+  `build-for-testing` into a local derived data path, then `bootstatus -b` and
+  `test-without-building` with `-retry-tests-on-failure -test-iterations 2`. Local builds avoid
+  the multi-minute downloads observed when restoring Xcode compiler caches or transferring
+  shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
   - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
     `testRemoveScreenshot`, `testMainScreenHasSingleFeedbackButton`)
   - `feedback-b`: all of `FeedbackUITests` except those four (so new feedback tests land here)
-  - `other`: all of `PATHStatUITests` except the `PATHStatUITests` and `FeedbackUITests` classes
-    (gallery, interaction, layout, and any new UI class)
-  Reproduce a shard locally with e.g. `xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat
-  -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:PATHStatUITests
-  -skip-testing:PATHStatUITests/PATHStatUITests -skip-testing:PATHStatUITests/FeedbackUITests`.
+  - `galleries`: `WidgetGalleryUITests` + `LiveActivityGalleryUITests`
+  - `other`: `-only-testing:PATHStatUITests` minus the `PATHStatUITests`, `FeedbackUITests`,
+    `WidgetGalleryUITests` and `LiveActivityGalleryUITests` classes. It picks up interaction,
+    layout and any new UI class automatically. A new class that should run in its own shard needs
+    a new matrix entry and a matching `-skip-testing` line in `other`.
+  Reproduce a shard locally with its selectors, e.g. the `other` shard: `xcodebuild test -project
+  PATHStat.xcodeproj -scheme PATHStat -destination 'platform=iOS Simulator,name=iPhone 17'
+  -only-testing:PATHStatUITests -skip-testing:PATHStatUITests/PATHStatUITests
+  -skip-testing:PATHStatUITests/FeedbackUITests -skip-testing:PATHStatUITests/WidgetGalleryUITests
+  -skip-testing:PATHStatUITests/LiveActivityGalleryUITests`.
   To rebalance the shards, edit the `selectors` in the matrix.
   Each shard uploads `pathstat-results-<shard>` with the build and test bundles and attachments
-  on success or failure. Compiling within each shard avoids the three-plus minutes it took to
-  download shared build products on some hosted runners.
+  on success or failure.
 - `app` (Linux, name **`App build and simulator tests`** — the required check, keep the exact name):
   runs after `plan` and `tests`, fails if `plan` or any shard failed, was cancelled or was
   unexpectedly skipped, succeeds when the change is docs-only (tests correctly skipped), and
   uploads `pathstat-test-results`.
 
-GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0,
+GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0 (package job only),
 `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2.
 
 - Root Markdown files, `docs/` and `screenshots/` can change without running the simulator
