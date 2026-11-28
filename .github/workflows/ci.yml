@@ -195,13 +195,7 @@ jobs:
             -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
             CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO
 
-      # Building while the simulator boots was slower on the hosted runners.
-      - name: Boot simulator and wait
-        env:
-          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
-        timeout-minutes: 5
-        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
-
+      # Xcode boots the selected simulator after the build has finished.
       - name: Run simulator tests
         timeout-minutes: 15
         env:
