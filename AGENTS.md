@@ -286,9 +286,10 @@ On a push to `main`, `plan` verifies all of the following before reusing PR resu
    (`event.before` equals `HEAD^1`).
 2. GitHub associates the landed commit with exactly one matching merged PR from this repository
    into `main`. A docs-only diff selects `docs` here.
-3. The latest `ci.yml` PR run for that PR's final head SHA finished successfully, and the latest
-   execution of every required job in that run passed. Earlier successful jobs can carry through a
-   failed-job rerun.
+3. The latest matching `ci.yml` run for the PR's final branch and head SHA finished successfully,
+   and the latest execution of every required job passed. A run with an empty PR association list
+   still needs proof naming the merged PR. Earlier successful jobs can carry through a failed-job
+   rerun.
 4. That run has an unexpired proof artifact for its latest attempt and an unexpired aggregate.
    The proof must match the push's tree, the PR, the head SHA, the run ID and attempt, the repository,
    the base and the current aggregate ID. If the base moved and changed the tested tree,
