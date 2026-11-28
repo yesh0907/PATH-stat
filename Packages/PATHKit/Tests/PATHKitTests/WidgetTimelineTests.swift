@@ -198,10 +198,27 @@ struct WidgetTripResolverTests {
         }
     }
 
-    @Test func nearest() {
-        let none = WidgetTripResolver.resolve(.nearest, location: nil, lastTrip: .groveToWTC)
+    @Test func smart() {
+        let none = WidgetTripResolver.resolve(.smart, location: nil)
         #expect(none == .init(trip: .groveTo33rd, locationUnavailable: true))
-        let near23rd = WidgetTripResolver.resolve(.nearest, location: StationCatalog.station(.twentyThirdStreet).location)
-        #expect(near23rd == .init(trip: .goingHome, locationUnavailable: false))
+
+        let near23rd = WidgetTripResolver.resolve(.smart, location: StationCatalog.station(.twentyThirdStreet).location)
+        #expect(near23rd == .init(trip: .goingHome, nearestStation: .twentyThirdStreet))
+
+        let nearGrove = WidgetTripResolver.resolve(.smart, location: StationCatalog.station(.groveStreet).location)
+        #expect(nearGrove.trip == .groveTo33rd)
+        #expect(nearGrove.locationUnavailable == false)
+        #expect(nearGrove.nearestStation == .groveStreet)
+
+        // No fix, but the app remembered a nearest station: smart trip for it, not unavailable.
+        let stored = WidgetTripResolver.resolve(.smart, location: nil, lastNearestStation: .hoboken)
+        #expect(stored == .init(trip: Trip(origin: .hoboken, destination: .groveStreet)))
+        // A fresh fix wins over the stored one.
+        let fresh = WidgetTripResolver.resolve(
+            .smart,
+            location: StationCatalog.station(.twentyThirdStreet).location,
+            lastNearestStation: .hoboken
+        )
+        #expect(fresh.trip == .goingHome)
     }
 }

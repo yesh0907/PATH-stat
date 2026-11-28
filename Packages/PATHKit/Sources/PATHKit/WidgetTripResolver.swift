@@ -7,20 +7,25 @@ public enum WidgetTripChoice: Sendable, Hashable {
     case savedTrip(Trip?)
     /// Any origin/destination pair; either may be unset in the configuration.
     case custom(from: StationCode?, to: StationCode?)
-    /// The smart default from the rider's location (`TripPlanner.defaultTrip`).
-    case nearest
+    /// The smart trip from the rider's location (`TripPlanner.smartTrip`).
+    case smart
 }
 
 /// Resolves a widget's configured trip. Pure: the caller supplies the location, if any.
 public enum WidgetTripResolver {
     public struct Resolution: Sendable, Hashable {
         public let trip: Trip
-        /// `.nearest` was requested but no location was available; `trip` is the fallback.
+        /// `.smart` was requested but no location or last nearest station was available;
+        /// `trip` is the fallback.
         public let locationUnavailable: Bool
+        /// The nearest station a fresh location fix produced, so the caller can persist it.
+        /// Nil when no location was involved.
+        public let nearestStation: StationCode?
 
-        public init(trip: Trip, locationUnavailable: Bool = false) {
+        public init(trip: Trip, locationUnavailable: Bool = false, nearestStation: StationCode? = nil) {
             self.trip = trip
             self.locationUnavailable = locationUnavailable
+            self.nearestStation = nearestStation
         }
     }
 
@@ -28,9 +33,10 @@ public enum WidgetTripResolver {
 
     /// - `savedTrip`: the trip, else `fallback`.
     /// - `custom`: `Trip.route(from:to:)` when one line serves the pair, else `fallback`.
-    /// - `nearest`: `TripPlanner.defaultTrip(location:lastTrip:)` with a location; without
-    ///   one, `fallback` with `locationUnavailable`.
-    public static func resolve(_ choice: WidgetTripChoice, location: CLLocation?, lastTrip: Trip? = nil) -> Resolution {
+    /// - `smart`: `TripPlanner.smartTrip` for the nearest station with a location (reporting
+    ///   it in `nearestStation`); without one but with a `lastNearestStation`, the smart trip
+    ///   for it; with neither, `fallback` with `locationUnavailable`.
+    public static func resolve(_ choice: WidgetTripChoice, location: CLLocation?, lastNearestStation: StationCode? = nil) -> Resolution {
         switch choice {
         case .savedTrip(let trip):
             return Resolution(trip: trip ?? fallback)
@@ -39,9 +45,15 @@ public enum WidgetTripResolver {
                 return Resolution(trip: fallback)
             }
             return Resolution(trip: Trip.route(from: from, to: to))
-        case .nearest:
-            guard let location else { return Resolution(trip: fallback, locationUnavailable: true) }
-            return Resolution(trip: TripPlanner.defaultTrip(location: location, lastTrip: lastTrip))
+        case .smart:
+            if let location {
+                let nearest = TripPlanner.nearestStation(to: location)
+                return Resolution(trip: TripPlanner.smartTrip(nearest: nearest), nearestStation: nearest)
+            }
+            if let lastNearestStation {
+                return Resolution(trip: TripPlanner.smartTrip(nearest: lastNearestStation))
+            }
+            return Resolution(trip: fallback, locationUnavailable: true)
         }
     }
 }

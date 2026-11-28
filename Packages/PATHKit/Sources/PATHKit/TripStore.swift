@@ -10,6 +10,7 @@ public struct TripStore: Sendable {
 
     static let favoritesKey = "PATHStat.favorites"
     static let lastTripKey = "PATHStat.lastTrip"
+    static let lastNearestStationKey = "PATHStat.lastNearestStation"
 
     /// App Group shared by the app and its widget extension.
     public static let appGroupSuite = "group.com.yesh0907.PATHStat"
@@ -54,6 +55,19 @@ public struct TripStore: Sendable {
         get { decode(Trip.self, Self.lastTripKey) }
         nonmutating set {
             if let newValue { encode(newValue, Self.lastTripKey) } else { defaults.removeObject(forKey: Self.lastTripKey) }
+        }
+    }
+
+    /// The last station a location fix put the rider nearest to. A station code only,
+    /// never coordinates, so it is safe to share with the widget.
+    public var lastNearestStation: StationCode? {
+        get { defaults.string(forKey: Self.lastNearestStationKey).flatMap(StationCode.init(rawValue:)) }
+        nonmutating set {
+            if let newValue {
+                defaults.set(newValue.rawValue, forKey: Self.lastNearestStationKey)
+            } else {
+                defaults.removeObject(forKey: Self.lastNearestStationKey)
+            }
         }
     }
 

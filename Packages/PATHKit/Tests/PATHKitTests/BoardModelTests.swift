@@ -8,6 +8,7 @@ import Testing
 struct BoardModelTests {
     private let nearGrove = StationCatalog.station(.groveStreet).location
     private let near23rd = StationCatalog.station(.twentyThirdStreet).location
+    private let nearHoboken = StationCatalog.station(.hoboken).location
 
     // MARK: Location default
 
@@ -55,6 +56,27 @@ struct BoardModelTests {
         model.locationDidChange(near23rd, authorization: .authorized)
         #expect(model.trip == .goingHome)
         #expect(store.lastTrip == nil)
+    }
+
+    @Test func freshFixWritesLastNearestStation() {
+        let store = makeStore()
+        let model = BoardModel(store: store, fetch: { throw URLError(.notConnectedToInternet) })
+        #expect(store.lastNearestStation == nil)
+        model.locationDidChange(near23rd, authorization: .authorized)
+        #expect(store.lastNearestStation == .twentyThirdStreet)
+        // Even after a manual selection the fix is still remembered.
+        model.select(.groveToWTC, manual: true)
+        model.locationDidChange(nearHoboken, authorization: .authorized)
+        #expect(store.lastNearestStation == .hoboken)
+        // No fix / denied never clears it.
+        model.locationDidChange(nil, authorization: .denied)
+        #expect(store.lastNearestStation == .hoboken)
+    }
+
+    @Test func nearHobokenHeadsToGrove() {
+        let model = makeModel()
+        model.locationDidChange(nearHoboken, authorization: .authorized)
+        #expect(model.trip == Trip(origin: .hoboken, destination: .groveStreet))
     }
 
     @Test func noLocationOrUndeterminedLeavesTrip() {

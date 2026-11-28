@@ -4,7 +4,9 @@ import Foundation
 extension PATHSnapshot {
     /// A plausible board at every station: each line runs every 10 minutes in both directions,
     /// staggered per line and station, with feed timestamps a few seconds old.
-    public static func sampleTrains(now: Date) -> PATHSnapshot {
+    /// `runsPerLine` trains per line and direction (1 yields exactly one train for a
+    /// single-line trip like Grove St → WTC).
+    public static func sampleTrains(now: Date, runsPerLine: Int = 3) -> PATHSnapshot {
         let lastUpdated = now.addingTimeInterval(-4)
         let lineOffset: [PATHLine: TimeInterval] = [
             .newarkWTC: 95, .hobokenWTC: 185, .journalSquare33rd: 252, .hoboken33rd: 330,
@@ -18,7 +20,7 @@ extension PATHSnapshot {
                     let terminus = direction == .toNY ? line.stops.last! : line.stops.first!
                     guard terminus != station else { continue }
                     let base = lineOffset[line, default: 120] + stagger + (direction == .toNJ ? 70 : 0)
-                    let trains = (0..<3).map { run in
+                    let trains = (0..<runsPerLine).map { run in
                         TrainArrival(
                             station: station,
                             direction: direction,
