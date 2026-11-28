@@ -13,7 +13,7 @@ struct FeedbackSheet: View {
         case compose
         case sending
         case sent(CreatedIssue)
-        case queued(String)
+        case queued(reason: String, needsToken: Bool)
     }
 
     /// The captured screenshot, as marked up so far.
@@ -23,6 +23,7 @@ struct FeedbackSheet: View {
     @State private var category = FeedbackCategory.bug
     @State private var phase = Phase.compose
     @State private var showingMarkup = false
+    @State private var showingSettings = false
     @FocusState private var noteFocused: Bool
 
     init(center: FeedbackCenter, screenshot: Data?, context: FeedbackContext, dismiss: @escaping () -> Void) {
@@ -47,7 +48,7 @@ struct FeedbackSheet: View {
                 case .compose: compose
                 case .sending: sending
                 case .sent(let issue): sent(issue)
-                case .queued(let reason): queued(reason)
+                case .queued(let reason, let needsToken): queued(reason, needsToken: needsToken)
                 }
             }
             .navigationTitle("Send feedback")
@@ -56,6 +57,9 @@ struct FeedbackSheet: View {
         }
         .interactiveDismissDisabled(isComposeDirty)
         .accessibilityIdentifier("feedback-sheet")
+        .sheet(isPresented: $showingSettings) {
+            FeedbackSettingsView(center: center)
+        }
         .fullScreenCover(isPresented: $showingMarkup) {
             if let image {
                 MarkupEditor(image: image) { edited in
@@ -111,6 +115,10 @@ struct FeedbackSheet: View {
             }
             Section {
                 shareLink(label: "Share instead")
+                Button { showingSettings = true } label: {
+                    Label("Feedback settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("feedback-settings-button")
             } footer: {
                 Text("Includes app version, device, screen, trip, feed status and recent errors. Never your location.")
             }
@@ -202,7 +210,7 @@ struct FeedbackSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func queued(_ reason: String) -> some View {
+    private func queued(_ reason: String, needsToken: Bool) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "tray.and.arrow.up.fill")
                 .font(.system(size: 56))
@@ -215,6 +223,13 @@ struct FeedbackSheet: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("feedback-queued-reason")
+            if needsToken {
+                Button { showingSettings = true } label: {
+                    Label("Feedback settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("feedback-queued-settings")
+            }
             shareLink(label: "Share now instead")
             Button("Done", action: dismiss)
                 .buttonStyle(.borderedProminent)
@@ -259,7 +274,7 @@ struct FeedbackSheet: View {
             case .sent(let issue):
                 phase = .sent(issue)
             case .waiting(let error):
-                phase = .queued(FeedbackShare.queuedReason(error))
+                phase = .queued(reason: FeedbackShare.queuedReason(error), needsToken: error == .noToken)
             }
         }
     }
@@ -278,7 +293,7 @@ enum FeedbackShare {
     static func queuedReason(_ error: FeedbackSendError) -> String {
         switch error {
         case .noToken:
-            "No GitHub token yet. Add one with the gear button next to Send feedback; it sends automatically after that."
+            "No GitHub token yet. Add one in Feedback settings; it sends automatically after that."
         case .network:
             "Can't reach GitHub right now. It sends automatically when you're back online."
         default:

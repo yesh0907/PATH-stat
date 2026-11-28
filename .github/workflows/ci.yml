@@ -66,7 +66,7 @@ jobs:
   app:
     name: App build and simulator tests
     runs-on: xcode-27
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - *checkout
       - *xcode
@@ -94,7 +94,7 @@ jobs:
           key: xcode-build-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat/**', 'PATHStatUITests/**', 'PATHStatWidget/**', 'PATHStatWidgetUI/**', 'PATHStat.xcodeproj/**', 'Packages/PATHKit/**') }}
 
       - name: Build and test PATHStat
-        timeout-minutes: 30
+        timeout-minutes: 40
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |

@@ -89,7 +89,8 @@ final class FeedbackUITests: XCTestCase {
 
         let queued = element(app, "feedback-queued")
         XCTAssertTrue(queued.waitForExistence(timeout: timeout))
-        XCTAssertTrue(element(app, "feedback-queued-reason").label.contains("No GitHub token"), element(app, "feedback-queued-reason").label)
+        XCTAssertTrue(element(app, "feedback-queued-reason").label.contains("Feedback settings"), element(app, "feedback-queued-reason").label)
+        XCTAssertTrue(element(app, "feedback-queued-settings").exists)
         XCTAssertTrue(element(app, "feedback-share").exists)
         attachScreenshot(app, "feedback-queued-no-token")
         element(app, "feedback-done").tap()
@@ -104,6 +105,19 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(element(app, "feedback-retry").exists)
         XCTAssertTrue(app.staticTexts["Add a dark mode icon"].exists)
         attachScreenshot(app, "feedback-settings-waiting")
+    }
+
+    @MainActor
+    func testQueuedNoTokenOpensSettings() {
+        let app = launch(feedback: "noToken")
+        openViaButton(app)
+        typeNote(app, "Add a dark mode icon")
+        element(app, "feedback-send").tap()
+
+        XCTAssertTrue(element(app, "feedback-queued").waitForExistence(timeout: timeout))
+        element(app, "feedback-queued-settings").tap()
+        XCTAssertTrue(element(app, "feedback-settings").waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "feedback-token-field").waitForExistence(timeout: timeout))
     }
 
     @MainActor
@@ -148,6 +162,27 @@ final class FeedbackUITests: XCTestCase {
         XCTAssertTrue(send.isEnabled)
         send.tap()
         XCTAssertTrue(element(app, "feedback-sent").waitForExistence(timeout: timeout))
+    }
+
+    @MainActor
+    func testMainScreenHasSingleFeedbackButton() {
+        let app = launch(feedback: "sent")
+        XCTAssertTrue(element(app, "next-train").waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "send-feedback-button").exists)
+        XCTAssertFalse(element(app, "send-feedback-footer").exists)
+        XCTAssertFalse(element(app, "feedback-settings-button").exists)
+    }
+
+    @MainActor
+    func testSettingsReachableFromSheet() {
+        let app = launch(feedback: "sent")
+        openViaButton(app)
+        let settingsButton = element(app, "feedback-settings-button")
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: timeout))
+        settingsButton.tap()
+        XCTAssertTrue(element(app, "feedback-settings").waitForExistence(timeout: timeout))
+        XCTAssertTrue(element(app, "feedback-token-field").exists)
+        attachScreenshot(app, "feedback-settings-from-sheet")
     }
 
     // MARK: Helpers

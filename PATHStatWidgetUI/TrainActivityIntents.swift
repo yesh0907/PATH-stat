@@ -55,6 +55,21 @@ struct StartHomeTo33rdIntent: LiveActivityIntent {
     }
 }
 
+/// "Next PATH train": the smart trip for the rider's last known nearest station.
+struct StartSmartTrainActivityIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource { "Start Next PATH Train Live Activity" }
+    static var description: IntentDescription {
+        "Shows the next PATH trains for your trip on the Lock Screen and in the Dynamic Island."
+    }
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        try await startTrainActivity(trip: TripPlanner.smartTrip(nearest: TripStore.shared.lastNearestStation))
+    }
+}
+
 @MainActor
 private func startTrainActivity(trip: Trip) async throws -> some IntentResult & ProvidesDialog {
     guard TrainActivities.areActivitiesEnabled else { throw TrainActivityIntentError.activitiesDisabled }

@@ -50,6 +50,11 @@ public final class BoardModel {
         StationCatalog.destinationOptions(from: trip.origin)
     }
 
+    /// The two one-tap destinations for the direction control on the main screen.
+    public var quickDestinations: [StationCode] {
+        TripPlanner.quickDestinations(from: trip.origin)
+    }
+
     /// Fetches the feed. The fetch is trip-independent, so concurrent callers (refresh loop,
     /// pull-to-refresh, Retry) share one in-flight fetch. Cancelling a caller doesn't cancel
     /// the shared fetch; its result still lands.
@@ -116,6 +121,11 @@ public final class BoardModel {
     /// come only from one-shot `requestLocation()` calls at launch and on returning to the
     /// foreground, so the trip doesn't thrash while the screen is in use.
     public func locationDidChange(_ location: CLLocation?, authorization: LocationAuthorization) {
+        // Remember the nearest station on every fresh fix, even after a manual selection:
+        // the widget's smart mode reads it when it can't get a fix of its own.
+        if authorization == .authorized, let location {
+            store.lastNearestStation = TripPlanner.nearestStation(to: location)
+        }
         guard !hasManualSelection else { return }
         switch authorization {
         case .notDetermined:

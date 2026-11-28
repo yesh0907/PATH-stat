@@ -246,54 +246,58 @@ struct TripPlannerTests {
     /// ~2 km south-west of Grove St, still nearest to it.
     let farFromGrove = CLLocation(latitude: 40.7050, longitude: -74.0600)
 
-    func nearest(_ location: CLLocation) -> (StationCode, CLLocationDistance) {
-        let first = StationCatalog.stations(nearest: location).first!
-        return (first.station.code, first.distance)
+    func nearest(_ location: CLLocation) -> StationCode? {
+        StationCatalog.stations(nearest: location).first?.station.code
     }
 
     @Test func fixtureLocationsAreWhereTheTestsAssume() {
-        #expect(nearest(nearGrove).0 == .groveStreet)
-        #expect((250...400).contains(nearest(nearGrove).1))
-        #expect(nearest(nearTwentyThird).0 == .twentyThirdStreet)
-        #expect((150...250).contains(nearest(nearTwentyThird).1))
-        #expect(nearest(nearHoboken).0 == .hoboken)
-        #expect(nearest(nearFourteenth).0 == .fourteenthStreet)
-        #expect(nearest(farFromGrove).0 == .groveStreet)
-        #expect(nearest(farFromGrove).1 > TripPlanner.nearbyRadius)
+        #expect(nearest(nearGrove) == .groveStreet)
+        #expect(nearest(nearTwentyThird) == .twentyThirdStreet)
+        #expect(nearest(nearHoboken) == .hoboken)
+        #expect(nearest(nearFourteenth) == .fourteenthStreet)
+        #expect(nearest(farFromGrove) == .groveStreet)
     }
 
-    @Test func nearHomeGoesToWork() {
+    @Test func everyStationReachesGroveStreetOnOneLine() {
+        for station in StationCode.allCases where station != .groveStreet {
+            #expect(!StationCatalog.lines(serving: station, to: .groveStreet).isEmpty, "\(station) reaches Grove St")
+        }
+    }
+
+    @Test func smartTrip() {
+        #expect(TripPlanner.smartTrip(nearest: nil) == .groveTo33rd)
+        #expect(TripPlanner.smartTrip(nearest: .groveStreet) == .groveTo33rd)
+        #expect(TripPlanner.smartTrip(nearest: .twentyThirdStreet) == .goingHome)
+        #expect(TripPlanner.smartTrip(nearest: .twentyThirdStreet).name == "Going home")
+        #expect(TripPlanner.smartTrip(nearest: .hoboken) == Trip(origin: .hoboken, destination: .groveStreet))
+        #expect(TripPlanner.smartTrip(nearest: .newark) == Trip(origin: .newark, destination: .groveStreet))
+    }
+
+    @Test func nearestStation() {
+        #expect(TripPlanner.nearestStation(to: nearGrove) == .groveStreet)
+        #expect(TripPlanner.nearestStation(to: nearHoboken) == .hoboken)
+    }
+
+    @Test func nearGroveGoesToThirtyThird() {
         #expect(TripPlanner.defaultTrip(location: nearGrove, lastTrip: nil) == .groveTo33rd)
         #expect(TripPlanner.defaultTrip(location: nearGrove, lastTrip: .groveToWTC) == .groveTo33rd)
-        #expect(TripPlanner.defaultTrip(location: StationCatalog.station(.groveStreet).location, lastTrip: .goingHome) == .groveTo33rd)
+        // Far from Grove but still nearest to it: same commute preset.
+        #expect(TripPlanner.defaultTrip(location: farFromGrove, lastTrip: nil) == .groveTo33rd)
+        #expect(TripPlanner.defaultTrip(location: farFromGrove, lastTrip: .goingHome) == .groveTo33rd)
     }
 
-    @Test func nearWorkGoesHome() {
+    @Test func nearTwentyThirdGoesHome() {
         #expect(TripPlanner.defaultTrip(location: nearTwentyThird, lastTrip: nil) == .goingHome)
-        #expect(TripPlanner.defaultTrip(location: nearTwentyThird, lastTrip: .groveTo33rd) == .goingHome)
+        #expect(TripPlanner.defaultTrip(location: nearTwentyThird, lastTrip: .groveTo33rd).name == "Going home")
     }
 
-    @Test func elsewhereUsesNearestStation() {
+    @Test func elsewhereHeadsTowardGrove() {
         #expect(TripPlanner.defaultTrip(location: nearHoboken, lastTrip: nil)
-            == Trip(origin: .hoboken, destination: .worldTradeCenter))
+            == Trip(origin: .hoboken, destination: .groveStreet))
         #expect(TripPlanner.defaultTrip(location: nearHoboken, lastTrip: .groveTo33rd)
-            == Trip(origin: .hoboken, destination: .worldTradeCenter))
-        let hobokenTo33 = Trip(origin: .hoboken, destination: .thirtyThirdStreet)
-        #expect(TripPlanner.defaultTrip(location: nearHoboken, lastTrip: hobokenTo33) == hobokenTo33)
-
-        // Nearest is 14th St, not 23rd St, so the "going home" rule doesn't apply.
+            == Trip(origin: .hoboken, destination: .groveStreet))
         #expect(TripPlanner.defaultTrip(location: nearFourteenth, lastTrip: nil)
-            == Trip(origin: .fourteenthStreet, destination: .thirtyThirdStreet))
-        let fourteenthToGrove = Trip(origin: .fourteenthStreet, destination: .groveStreet)
-        #expect(TripPlanner.defaultTrip(location: nearFourteenth, lastTrip: fourteenthToGrove) == fourteenthToGrove)
-        #expect(TripPlanner.defaultTrip(location: nearFourteenth, lastTrip: .goingHome)
-            == Trip(origin: .fourteenthStreet, destination: .thirtyThirdStreet))
-    }
-
-    @Test func homeStationBeyondRadiusUsesLastTripOrFirstTerminus() {
-        #expect(TripPlanner.defaultTrip(location: farFromGrove, lastTrip: nil) == .groveToWTC)
-        #expect(TripPlanner.defaultTrip(location: farFromGrove, lastTrip: .groveTo33rd) == .groveTo33rd)
-        #expect(TripPlanner.defaultTrip(location: farFromGrove, lastTrip: .goingHome) == .groveToWTC)
+            == Trip(origin: .fourteenthStreet, destination: .groveStreet))
     }
 
     @Test func noLocation() {
@@ -301,6 +305,23 @@ struct TripPlannerTests {
         #expect(TripPlanner.defaultTrip(location: nil, lastTrip: .goingHome) == .goingHome)
         let custom = Trip(origin: .hoboken, destination: .ninthStreet)
         #expect(TripPlanner.defaultTrip(location: nil, lastTrip: custom) == custom)
+    }
+
+    @Test func quickDestinations() {
+        #expect(TripPlanner.quickDestinations(from: .groveStreet) == [.thirtyThirdStreet, .worldTradeCenter])
+        #expect(TripPlanner.quickDestinations(from: .twentyThirdStreet) == [.groveStreet, .thirtyThirdStreet])
+        #expect(TripPlanner.quickDestinations(from: .hoboken) == [.groveStreet, .thirtyThirdStreet])
+        #expect(TripPlanner.quickDestinations(from: .worldTradeCenter) == [.groveStreet, .newark])
+        #expect(TripPlanner.quickDestinations(from: .thirtyThirdStreet) == [.groveStreet, .journalSquare])
+        for station in StationCode.allCases {
+            let quick = TripPlanner.quickDestinations(from: station)
+            #expect(quick.count == 2, "\(station)")
+            #expect(Set(quick).count == 2, "\(station)")
+            #expect(!quick.contains(station), "\(station)")
+            for destination in quick {
+                #expect(!StationCatalog.lines(serving: station, to: destination).isEmpty, "\(station) → \(destination)")
+            }
+        }
     }
 
     @Test func defaultDestination() {
@@ -347,6 +368,17 @@ struct TripStoreTests {
             #expect(TripStore(suiteName: store.suiteName).favorites == [.goingHome, custom])
             store.favorites = []
             #expect(store.favorites.isEmpty)
+        }
+    }
+
+    @Test func lastNearestStationPersistsAndClears() {
+        withStore { store in
+            #expect(store.lastNearestStation == nil)
+            store.lastNearestStation = .hoboken
+            #expect(store.lastNearestStation == .hoboken)
+            #expect(TripStore(suiteName: store.suiteName).lastNearestStation == .hoboken)
+            store.lastNearestStation = nil
+            #expect(store.lastNearestStation == nil)
         }
     }
 

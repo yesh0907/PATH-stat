@@ -12,9 +12,9 @@ enum TripMode: String, AppEnum {
 
     static var caseDisplayRepresentations: [TripMode: DisplayRepresentation] {
         [
+            .nearest: "Smart (based on location)",
             .savedTrip: "Saved trip",
             .custom: "Station & destination",
-            .nearest: "Nearest station",
         ]
     }
 }
@@ -25,7 +25,7 @@ struct ConfigurationAppIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Next PATH train" }
     static var description: IntentDescription { "Shows the next PATH trains for a trip." }
 
-    @Parameter(title: "Show", default: .savedTrip)
+    @Parameter(title: "Show", default: .nearest)
     var mode: TripMode
 
     @Parameter(title: "Trip")
@@ -63,7 +63,7 @@ struct ConfigurationAppIntent: WidgetConfigurationIntent {
         switch mode {
         case .savedTrip: .savedTrip(trip?.trip)
         case .custom: .custom(from: origin?.code, to: destination?.code)
-        case .nearest: .nearest
+        case .nearest: .smart
         }
     }
 }

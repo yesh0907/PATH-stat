@@ -4,12 +4,15 @@ import PATHKit
 
 /// Deterministic app states for UI tests, screenshots and previews.
 ///
-/// Launch with `-UITestScenario <loading|trains|noTrains|offline|locationDenied|offlineWithData>`
+/// Launch with `-UITestScenario <loading|trains|singleTrain|noTrains|offline|locationDenied|offlineWithData>`
 /// and optionally `-UITestLocation <lat>,<lon>`. Scenario mode uses a throwaway `TripStore`, a
 /// stub feed, and fixed location state; the real `CLLocationManager` is never created.
 enum Scenario: String, CaseIterable, Sendable {
     case loading
     case trains
+    /// Like `trains`, but one run per line: Grove St → WTC has exactly one train,
+    /// so the following-train and later-trains placeholders show.
+    case singleTrain
     case noTrains
     case offline
     case locationDenied
@@ -90,6 +93,8 @@ enum Scenario: String, CaseIterable, Sendable {
             }
         case .trains, .locationDenied:
             return { PATHSnapshot.sampleTrains(now: .now) }
+        case .singleTrain:
+            return { PATHSnapshot.sampleTrains(now: .now, runsPerLine: 1) }
         case .noTrains:
             return { PATHSnapshot.sampleNoTrains(now: .now) }
         case .offline, .offlineWithData:
