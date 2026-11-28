@@ -167,14 +167,6 @@ jobs:
           echo "Testing on $name (iOS $version, $build)"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
-      # simctl boot returns once boot has started; it overlaps the compile below.
-      # An already booted device is fine.
-      - name: Start simulator boot
-        env:
-          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
-        run: |
-          xcrun simctl boot "$SIMULATOR_UDID" || echo "simctl boot failed or already booted; continuing"
-
       - name: Build for testing
         timeout-minutes: 15
         env:
@@ -182,14 +174,15 @@ jobs:
         run: |
           unset PATH_LIVE
           mkdir -p "$RUNNER_TEMP/pathstat-results"
-          xcodebuild build-for-testing -project PATHStat.xcodeproj -scheme PATHStat \
+          xcodebuild build-for-testing -quiet -project PATHStat.xcodeproj -scheme PATHStat \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
             -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
             CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO
 
-      - name: Wait for simulator
+      # Building while the simulator boots was slower on the hosted runners.
+      - name: Boot simulator and wait
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         timeout-minutes: 5

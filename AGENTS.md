@@ -223,11 +223,10 @@ pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedbac
 Jobs (all in `.github/workflows/ci.yml`):
 
 - `plan` (Linux): the docs-only diff check below.
-- `tests` (matrix, `xcode-27`, `fail-fast: false`): five concurrent runners, each with one
-  simulator (`-parallel-testing-enabled NO`). Each shard checks out, starts `simctl boot` (an
-  already booted device is tolerated) so boot overlaps the build, runs its own unsigned
-  `build-for-testing` into a local derived data path, then `bootstatus -b` and
-  `test-without-building` with `-retry-tests-on-failure -test-iterations 2`. Local builds avoid
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
+  (`-parallel-testing-enabled NO`). Each runs an unsigned `build-for-testing` into a local
+  derived data path, then `simctl bootstatus -b` to boot and wait for the simulator.
+  `test-without-building` runs with `-retry-tests-on-failure -test-iterations 2`. Local builds avoid
   the multi-minute downloads observed when restoring Xcode compiler caches or transferring
   shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
   - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
