@@ -128,6 +128,52 @@ struct TrainCard: View {
     }
 }
 
+struct ScheduledTrainCard: View {
+    let destination: Station
+    let departure: Date
+    let now: Date
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        let remaining = departure.timeIntervalSince(now)
+        VStack(alignment: .leading, spacing: 10) {
+            layout {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Scheduled", systemImage: "clock")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(destination.name)
+                        .font(.headline)
+                }
+                if !stacked { Spacer(minLength: 8) }
+                VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
+                    Text(Format.countdown(remaining))
+                        .font(.system(.largeTitle, design: .rounded).weight(.bold).monospacedDigit())
+                        .contentTransition(.numericText(countsDown: true))
+                    Text("at \(Format.clock(departure))")
+                        .font(.subheadline)
+                }
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: !stacked, vertical: false)
+            }
+            Text("No real-time status reported")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Scheduled train to \(destination.name), \(Format.spokenCountdown(remaining)), at \(Format.clock(departure)). No real-time status reported.")
+        .accessibilityIdentifier("next-train-scheduled")
+    }
+}
+
 /// A compact row for trains after the following one (minutes only).
 struct LaterTrainRow: View {
     let train: TrainArrival

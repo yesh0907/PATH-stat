@@ -19,6 +19,8 @@ public final class BoardModel {
 
     @ObservationIgnored private let fetch: Fetch
     @ObservationIgnored private let store: TripStore
+    @ObservationIgnored private let scheduleRepository: ScheduleRepository?
+    private var schedule: TrainSchedule?
     /// Set once the user picks a trip/station/destination this session.
     @ObservationIgnored private var hasManualSelection = false
     /// The fetch every concurrent `refresh()` caller shares.
@@ -30,6 +32,8 @@ public final class BoardModel {
     public init(
         store: TripStore = TripStore(),
         initialSnapshot: PATHSnapshot? = nil,
+        initialSchedule: TrainSchedule? = nil,
+        scheduleRepository: ScheduleRepository? = nil,
         fetch: @escaping Fetch = { try await PATHClient().fetchSnapshot() }
     ) {
         self.store = store
@@ -38,12 +42,27 @@ public final class BoardModel {
         trip = TripPlanner.defaultTrip(location: nil, lastTrip: store.lastTrip)
         snapshot = initialSnapshot
         lastFetchAt = initialSnapshot?.fetchedAt
+        schedule = initialSchedule
+        self.scheduleRepository = scheduleRepository
     }
 
     // MARK: Board
 
     public func board(now: Date) -> DepartureBoard? {
         snapshot?.departures(at: trip.origin, toward: trip.destination, now: now)
+    }
+
+    public func nextScheduledDeparture(now: Date) -> Date? {
+        guard let schedule else { return nil }
+        let live = board(now: now)
+        guard live?.trains.isEmpty ?? (errorMessage != nil) else { return nil }
+        return schedule.nextDeparture(for: trip, after: now)
+    }
+
+    public func refreshSchedule() async {
+        guard let scheduleRepository else { return }
+        if schedule == nil { schedule = await scheduleRepository.cachedSchedule() }
+        schedule = await scheduleRepository.refresh()
     }
 
     public var destinationOptions: (termini: [DestinationOption], otherStops: [DestinationOption]) {

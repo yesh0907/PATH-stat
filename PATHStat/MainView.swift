@@ -80,6 +80,17 @@ struct MainView: View {
         .environment(feedback)
         .background(Color(.systemGroupedBackground))
         .refreshable { await model.refresh() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.refreshSchedule()
+                do {
+                    try await Task.sleep(for: .seconds(900))
+                } catch {
+                    return
+                }
+            }
+        }
         // Refresh now, then every 20 s; restarts when the trip changes or the app returns to
         // the foreground, and stops scheduling refreshes when inactive or hidden. A fetch
         // already in flight finishes so every caller gets its result.
@@ -344,6 +355,7 @@ private struct BoardContent: View {
     let startLiveActivity: () -> Void
 
     var body: some View {
+        let scheduled = model.nextScheduledDeparture(now: now)
         VStack(alignment: .leading, spacing: 12) {
             if let board = model.board(now: now) {
                 if model.errorMessage != nil, let fetchedAt = model.lastFetchAt {
@@ -354,7 +366,11 @@ private struct BoardContent: View {
                     if board.trains.isEmpty {
                         VStack(spacing: 12) {
                             stripAloneCard
-                            NoTrainsState(destination: StationCatalog.station(model.trip.destination))
+                            if let scheduled {
+                                scheduledCard(scheduled)
+                            } else {
+                                NoTrainsState(destination: StationCatalog.station(model.trip.destination))
+                            }
                         }
                     } else {
                         trainsLayout(
@@ -365,12 +381,13 @@ private struct BoardContent: View {
                         )
                     }
                 }
-                FreshnessFooter(board: board, now: now)
+                FreshnessFooter(board: board, now: now, showingSchedule: scheduled != nil)
             } else if let error = model.errorMessage {
                 ZStack(alignment: .top) {
                     skeleton.hidden().accessibilityHidden(true)
                     VStack(spacing: 12) {
                         stripAloneCard
+                        if let scheduled { scheduledCard(scheduled) }
                         OfflineState(message: error, isRetrying: model.isLoading) {
                             Task { await model.refresh() }
                         }
@@ -389,6 +406,10 @@ private struct BoardContent: View {
                 }
             }
         }
+    }
+
+    private func scheduledCard(_ departure: Date) -> some View {
+        ScheduledTrainCard(destination: StationCatalog.station(model.trip.destination), departure: departure, now: now)
     }
 
     /// The full trains layout with dummy trains: reserves the trains-state height.
@@ -580,13 +601,18 @@ private struct OfflineBanner: View {
 private struct FreshnessFooter: View {
     let board: DepartureBoard
     let now: Date
+    let showingSchedule: Bool
 
     @Environment(FeedbackCenter.self) private var feedback: FeedbackCenter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let age = board.age(at: now) {
-                Text("Updated \(Format.age(age)) ago")
+                if showingSchedule {
+                    Text("Real-time feed updated \(Format.age(age)) ago")
+                } else {
+                    Text("Updated \(Format.age(age)) ago")
+                }
             } else {
                 Text("No update time from PATH")
             }

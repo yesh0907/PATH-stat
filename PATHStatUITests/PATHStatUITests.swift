@@ -45,7 +45,21 @@ final class PATHStatUITests: PATHStatUITestCase {
         XCTAssertTrue(empty.label.contains("No trains to 33rd St right now"), empty.label)
         XCTAssertTrue(element(app, "freshness-footer").label.hasPrefix("Updated"))
         XCTAssertFalse(element(app, "next-train").exists)
+        XCTAssertFalse(element(app, "next-train-scheduled").exists)
         attachScreenshot(app, "no-trains")
+    }
+
+    @MainActor
+    func testScheduleFallbackShowsScheduledTrainWithUnknownRealtimeStatus() {
+        let app = launch(scenario: "scheduleFallback")
+        let scheduled = element(app, "next-train-scheduled")
+        XCTAssertTrue(scheduled.waitForExistence(timeout: timeout))
+        XCTAssertTrue(scheduled.label.hasPrefix("Scheduled train to World Trade Center"), scheduled.label)
+        XCTAssertTrue(scheduled.label.contains("No real-time status reported"), scheduled.label)
+        XCTAssertTrue(element(app, "destination-WTC").isSelected)
+        XCTAssertFalse(element(app, "next-train").exists)
+        XCTAssertFalse(element(app, "state-no-trains").exists)
+        attachScreenshot(app, "schedule-fallback")
     }
 
     @MainActor

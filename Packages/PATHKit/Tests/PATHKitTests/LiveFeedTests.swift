@@ -18,4 +18,10 @@ struct LiveFeedTests {
     func alertsParse() async throws {
         _ = try await PATHClient().fetchAlerts()
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func postedScheduleParses() async throws {
+        let data = try await ScheduleRepository.download()
+        _ = try TrainSchedule(gtfsZIP: data)
+    }
 }
