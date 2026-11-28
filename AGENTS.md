@@ -209,9 +209,57 @@ gh run view <run-id> --log-failed
 gh run download <run-id> --name pathstat-test-results --dir /tmp/pathstat-ci
 ```
 
-Open `Tests.xcresult` in Xcode or browse `attachments/` for UI-test screenshots. The
-`attachments/manifest.json` file maps the exported files to their human-readable test names.
-CI uploads the bundle and attachments on success and failure when Xcode produces them.
+Open the `.xcresult` bundles in Xcode or browse each shard's `attachments/` for UI-test screenshots
+(each `attachments/manifest.json` maps exported files to human-readable test names). The
+`pathstat-test-results` artifact is assembled by the gate job from per-job artifacts and uploaded on
+success and failure (partial results included), laid out as:
+
+```
+pathstat-results-<shard>/Build.xcresult
+pathstat-results-<shard>/Tests.xcresult
+pathstat-results-<shard>/attachments/      # shard = core | feedback-a | feedback-b | galleries | other
+```
+
+Jobs (all in `.github/workflows/ci.yml`):
+
+- `plan` (Linux): the docs-only diff check below.
+- `tests` (matrix, `xcode-27`, `fail-fast: false`): five shards, each with one simulator
+  (`-parallel-testing-enabled NO`). CI prefers iPhone 18 Pro Max, iPhone 18 Pro, then iPhone 17
+  for the layout checks. Each shard runs an unsigned `build-for-testing` into a local derived
+  data path, then uses `simctl bootstatus -b` to boot and wait for the simulator.
+  `test-without-building` uses the generated `.xctestrun` and retries failed tests once. Local builds
+  avoid the multi-minute downloads observed when restoring Xcode compiler caches or transferring
+  shared build products. The package job still caches PATHKit's SwiftPM build. Shards:
+  - `core`: `PATHKitTests` + `PATHStatUITests/PATHStatUITests`
+  - `feedback-a`: four named `FeedbackUITests` cases (`testSendViaButton`, `testQueuedWithoutToken`,
+    `testRemoveScreenshot`, `testMainScreenHasSingleFeedbackButton`)
+  - `feedback-b`: all of `FeedbackUITests` except those four (so new feedback tests land here)
+  - `galleries`: `WidgetGalleryUITests` + `LiveActivityGalleryUITests`
+  - `other`: `-only-testing:PATHStatUITests` minus the `PATHStatUITests`, `FeedbackUITests`,
+    `WidgetGalleryUITests` and `LiveActivityGalleryUITests` classes. It picks up interaction,
+    layout and any new UI class automatically. A new class that should run in its own shard needs
+    a new matrix entry and a matching `-skip-testing` line in `other`.
+  Reproduce a shard locally with its selectors, e.g. the `other` shard: `xcodebuild test -project
+  PATHStat.xcodeproj -scheme PATHStat -destination 'platform=iOS Simulator,name=iPhone 17'
+  -only-testing:PATHStatUITests -skip-testing:PATHStatUITests/PATHStatUITests
+  -skip-testing:PATHStatUITests/FeedbackUITests -skip-testing:PATHStatUITests/WidgetGalleryUITests
+  -skip-testing:PATHStatUITests/LiveActivityGalleryUITests`.
+  To rebalance the shards, edit the `selectors` in the matrix.
+  Each shard uploads `pathstat-results-<shard>` with the build and test bundles and attachments
+  on success or failure.
+- `app` (Linux, name **`App build and simulator tests`** — the required check, keep the exact name):
+  runs after `plan` and `tests`, fails if `plan` or any shard failed, was cancelled or was
+  unexpectedly skipped, succeeds when the change is docs-only (tests correctly skipped), and
+  uploads `pathstat-test-results`.
+
+GitHub-owned actions are pinned to commit SHAs: `actions/checkout` v7.0.1, `actions/cache` v6.1.0 (package job only),
+`actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2.
+
+- Root Markdown files, `docs/` and `screenshots/` can change without running the simulator
+  steps. The gate still reports success and `PATHKit package tests` still runs. `plan` compares
+  the PR merge commit to its first parent and a main push to its previous commit. A manual
+  dispatch or an unavailable diff runs the full suite.
+- New PR runs cancel superseded runs on the same PR.
 
 ## Signing (hard rule)
 

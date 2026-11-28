@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -23,8 +23,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
-      - &checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: &checkout actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -63,50 +62,159 @@ jobs:
           unset PATH_LIVE
           swift test --package-path Packages/PATHKit
 
-  app:
-    name: App build and simulator tests
-    runs-on: xcode-27
-    timeout-minutes: 50
+  # Lightweight Linux job: decides whether the simulator suite must run (docs-only changes skip it).
+  plan:
+    name: Plan simulator run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
     steps:
-      - *checkout
+      - uses: *checkout
+        with:
+          persist-credentials: false
+          # Main pushes may contain more than one commit. Compare trees without fetching old blobs.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Plan simulator run
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=
+          case "$EVENT" in
+            pull_request) base=HEAD^1 ;; # First parent of GitHub's PR merge commit
+            push) base=$BEFORE ;;
+          esac
+
+          run=true
+          # Run the suite if the diff is unavailable or includes any non-documentation path.
+          # Disable rename detection so moving a source file into docs still runs the suite.
+          if [[ -n "$base" ]] && git diff --quiet --no-renames "$base" HEAD -- . \
+            ':(top,glob,exclude)*.md' ':(top,exclude)docs/' ':(top,exclude)screenshots/'; then
+            run=false
+          fi
+          echo "Run simulator tests: $run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  # Five disjoint shards run concurrently, each on its own runner with its own simulator
+  # (no parallel clones). Each builds locally: transferring the products cost more than compiling.
+  # Selectors together cover everything:
+  #   core       PATHKitTests + PATHStatUITests/PATHStatUITests
+  #   feedback-a four named FeedbackUITests cases
+  #   feedback-b all other FeedbackUITests cases (including future ones)
+  #   galleries  WidgetGalleryUITests + LiveActivityGalleryUITests
+  #   other      every UI class except core, FeedbackUITests and the galleries (future classes land here)
+  tests:
+    name: Simulator tests (${{ matrix.shard }})
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: core
+            selectors: >-
+              -only-testing:PATHKitTests
+              -only-testing:PATHStatUITests/PATHStatUITests
+          - shard: feedback-a
+            selectors: >-
+              -only-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
+              -only-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
+              -only-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
+              -only-testing:PATHStatUITests/FeedbackUITests/testMainScreenHasSingleFeedbackButton
+          - shard: feedback-b
+            selectors: >-
+              -only-testing:PATHStatUITests/FeedbackUITests
+              -skip-testing:PATHStatUITests/FeedbackUITests/testSendViaButton
+              -skip-testing:PATHStatUITests/FeedbackUITests/testQueuedWithoutToken
+              -skip-testing:PATHStatUITests/FeedbackUITests/testRemoveScreenshot
+              -skip-testing:PATHStatUITests/FeedbackUITests/testMainScreenHasSingleFeedbackButton
+          - shard: galleries
+            selectors: >-
+              -only-testing:PATHStatUITests/WidgetGalleryUITests
+              -only-testing:PATHStatUITests/LiveActivityGalleryUITests
+          - shard: other
+            selectors: >-
+              -only-testing:PATHStatUITests
+              -skip-testing:PATHStatUITests/PATHStatUITests
+              -skip-testing:PATHStatUITests/FeedbackUITests
+              -skip-testing:PATHStatUITests/WidgetGalleryUITests
+              -skip-testing:PATHStatUITests/LiveActivityGalleryUITests
+    steps:
+      - uses: *checkout
+        with:
+          persist-credentials: false
+
       - *xcode
 
       - name: Select iPhone simulator
         id: simulator
         run: |
+          # Keep layout checks on iPhone models already verified by this suite.
           simulator=$(xcrun simctl list --json | jq -er '
             ([.runtimes[] | select(.isAvailable and (.identifier | contains(".iOS-")))]
-              | sort_by(.version | split(".") | map(tonumber)) | reverse) as $runtimes
-            | first($runtimes[] as $runtime | .devices[$runtime.identifier][]?
-                | select(.isAvailable and (.name | startswith("iPhone ")))
+              | sort_by((.version | split(".") | map(tonumber)), (.buildversion | test("[0-9]$")))
+              | reverse) as $runtimes
+            | first(("iPhone 18 Pro Max", "iPhone 18 Pro", "iPhone 17") as $model
+                | $runtimes[] as $runtime | .devices[$runtime.identifier][]?
+                | select(.isAvailable and .name == $model)
                 | [.udid, .name, $runtime.version, $runtime.buildversion] | @tsv)
-              // error("No available iPhone simulator")
+              // error("No available iPhone 18 Pro Max, iPhone 18 Pro, or iPhone 17 simulator")
           ')
           IFS=$'\t' read -r udid name version build <<< "$simulator"
           echo "Testing on $name (iOS $version, $build)"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          echo "build=$build" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Xcode build products
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/PATHStatDerivedData/Build
-          key: xcode-build-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ steps.simulator.outputs.build }}-${{ hashFiles('PATHStat/**', 'PATHStatUITests/**', 'PATHStatWidget/**', 'PATHStatWidgetUI/**', 'PATHStat.xcodeproj/**', 'Packages/PATHKit/**') }}
-
-      - name: Build and test PATHStat
-        timeout-minutes: 40
+      - name: Build for testing
+        timeout-minutes: 15
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
           unset PATH_LIVE
           mkdir -p "$RUNNER_TEMP/pathstat-results"
-          xcodebuild test -project PATHStat.xcodeproj -scheme PATHStat \
+          xcodebuild build-for-testing -quiet -project PATHStat.xcodeproj -scheme PATHStat \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/pathstat-results/Build.xcresult" \
+            -skipPackagePluginValidation -skipMacroValidation -enableCodeCoverage NO \
+            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO
+
+      # Building while the simulator boots was slower on the hosted runners.
+      - name: Boot simulator and wait
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+
+      - name: Run simulator tests
+        timeout-minutes: 15
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+          SELECTORS: ${{ matrix.selectors }}
+        run: |
+          unset PATH_LIVE
+          read -r -a selectors <<< "$SELECTORS"
+          shopt -s nullglob
+          test_runs=("$RUNNER_TEMP/PATHStatDerivedData/Build/Products/"*.xctestrun)
+          if [[ ${#test_runs[@]} -ne 1 ]]; then
+            echo "::error::Expected one PATHStat .xctestrun file, found ${#test_runs[@]}"
+            exit 1
+          fi
+          # -retry-tests-on-failure -test-iterations 2 only re-runs tests that failed (at most
+          # one extra attempt each); it does not run the suite twice.
+          xcodebuild test-without-building -xctestrun "${test_runs[0]}" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -destination-timeout 120 \
             -parallel-testing-enabled NO \
             -retry-tests-on-failure -test-iterations 2 \
-            -derivedDataPath "$RUNNER_TEMP/PATHStatDerivedData" \
+            -enableCodeCoverage NO \
             -resultBundlePath "$RUNNER_TEMP/pathstat-results/Tests.xcresult" \
+            "${selectors[@]}" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Export UI-test screenshots
@@ -118,11 +226,59 @@ jobs:
               --output-path "$results/attachments"
           fi
 
-      - name: Upload test results and screenshots
+      - name: Upload shard results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: pathstat-test-results
+          name: pathstat-results-${{ matrix.shard }}
           path: ${{ runner.temp }}/pathstat-results/
           include-hidden-files: true
           retention-days: 14
+          if-no-files-found: ignore
+
+  # Required check. Keep this exact name: branch protection matches it.
+  app:
+    name: App build and simulator tests
+    needs: [plan, tests]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check results
+        env:
+          RUN: ${{ needs.plan.outputs.run }}
+          PLAN: ${{ needs.plan.result }}
+          TESTS: ${{ needs.tests.result }}
+        run: |
+          echo "plan=$PLAN run=$RUN tests=$TESTS"
+          if [[ "$PLAN" != success ]]; then
+            echo "::error::Planning did not succeed ($PLAN)"; exit 1
+          fi
+          if [[ "$RUN" == false ]]; then
+            if [[ "$TESTS" != skipped ]]; then
+              echo "::error::Docs-only run should skip the simulator tests"; exit 1
+            fi
+            echo "Docs-only change: simulator tests skipped"
+            exit 0
+          fi
+          if [[ "$TESTS" != success ]]; then
+            echo "::error::Simulator build or tests did not succeed ($TESTS)"; exit 1
+          fi
+
+      - name: Collect results
+        if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pathstat-results-*
+          path: ${{ runner.temp }}/pathstat-collected
+
+      # Layout: pathstat-results-<shard>/{Build.xcresult,Tests.xcresult,attachments/} per shard.
+      - name: Upload test results and screenshots
+        if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pathstat-test-results
+          path: ${{ runner.temp }}/pathstat-collected/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
